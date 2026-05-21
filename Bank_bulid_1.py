@@ -1,7 +1,7 @@
 import os
 import sqlite3
 import random
-from dictionary_1 import counter
+import smtplib
 def greet():
     print("==============================================================")
     msg = "Welcome to JH Bank"
@@ -32,7 +32,7 @@ class Register_Identity():
         v += str(n)
     c = str(c)+str(n)
     c =int(c)
-    def __init__(self,name,age,gender,status,town,phone,email,pin):
+    def __init__(self,name,age,gender,status,town,phone,email,password):
         self.name = name
         self.age = age
         self.gender = gender
@@ -40,18 +40,18 @@ class Register_Identity():
         self.town = town
         self.phone = phone
         self.email = email
-        self.pin  = pin
+        self.password = password
         self.account_id = Register_Identity.c
         
     def register_not(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("CREATE TABLE Customer_services(Customer_Name TEXT NOT NULL,Customer_Age TEXT NOT NULL,Customer_Gender TEXT NOT NULL,Customer_Status TEXT NOT NULL,Customer_Location TEXT NOT NULL ,Customer_Phone TEXT NOT NULL ,Customer_Email TEXT NOT NULL UNIQUE PRIMARY KEY,Customer_Pin TEXT NOT NULL,Customer_ID INT NOT NULL)")
-        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_Pin,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.pin,self.account_id))
+        cursor.execute("CREATE TABLE Customer_services(Customer_Name TEXT NOT NULL,Customer_Age TEXT NOT NULL,Customer_Gender TEXT NOT NULL,Customer_Status TEXT NOT NULL,Customer_Location TEXT NOT NULL ,Customer_Phone TEXT NOT NULL ,Customer_Email TEXT NOT NULL UNIQUE PRIMARY KEY,Customer_password NOT NULL TEXT NOT NULL,Customer_ID INT NOT NULL)")
+        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
         con.commit()
         con.close()
         report = open("Bank_JH.txt","a")
-        report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.pin}\n {self.account_id} \n")
+        report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password}\n {self.account_id} \n")
         report.close()
         print("Registration successful")
 
@@ -59,41 +59,62 @@ class Register_Identity():
     def register(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_Pin,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.pin,self.account_id))
+        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password NOT NULL,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
         con.commit()
         con.close()
         print("Registration successful")
         report = open("Bank_JH.txt","w+")
         report.write(f"{self.counter}")
-        report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.pin} \n {self.account_id}\n")
+        report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password} \n {self.account_id}\n")
         report.close()
         return
 
 
-def check(name:str,pin:int):
-    con = sqlite3.connect("Bank_JH.db")
-    cursor = con.cursor()
-    cursor.execute("SELECT * FROM Customer_services")
-    data = cursor.fetchall()
-    for d in data:
-        if name == d[0] and pin == d[7]:
+def check(name,password):
+        con = sqlite3.connect("Bank_JH.db")
+        cursor = con.cursor()
+        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = ? ",(name,))
+        data = cursor.fetchone()
+        if (data != None) and (name == data[0] and password == data[1]):
             print("Sign-in successful")
             return
         print("Invalid credentials please try again")
+#    con = sqlite3.connect("Bank_JH.db")
+#    cursor = con.cursor()
+#    cursor.execute("SELECT * FROM Customer_services")
+#    data = cursor.fetchall()
+#    for d in data:
+#        if name == d[6] and pin == d[7]:
+#            print("Sign-in successful")
+#            return
+#        print("Invalid credentials please try again")
+
 
 class Sign_up_check():
-    def __init__(self,name,pin):
+    def __init__(self,name,password):
         self.name = name
-        self.pin = pin
+        self.password = password
     
     def check(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("SELECT * FROM Customer_services")
-        data = cursor.fetchall()
-        for d in data:
-            if self.name == d[0] and self.pin == d[7]:
-                print("You already have an account please Sign-in")
-                return True
+        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = ? ",(self.name,))
+        data = cursor.fetchone()
+        if (data != None) and (self.name == data[0] and self.password == data[1]):
+            print("You already have an account please Sign-in")
+            return True
         return False
+class send_email():
+    def __init__(self,email):
+        self.email = email
+        self.bank_email = "customizedemail@gmail.com"
+    
+    def send(self):
+        smtObject = smtplib.SMTP("smtp.gmail.com",587)
+        smtObject.ehlo()
+        smtObject.starttls()    
+        smtObject.login(self.bank_email,"password")
+        smtObject.sendmail(self.bank_email, self.email, "Subject: Welcome to our bank!\n\nThank you for signing up.")
+
+
 

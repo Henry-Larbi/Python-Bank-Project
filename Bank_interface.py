@@ -4,6 +4,7 @@ from Bank_bulid_1 import Sign_up_check
 import os
 import time
 import random
+import re
 #we greet the User
 start.greet()
 #Ask User for purpose
@@ -28,31 +29,34 @@ else:
                 break
             else:
                 print("Invalid Username! username can't contain spaces or numbers or special characters")
-        pin = input("Enter your pin: ")
-        const = len(pin) == 4 and pin.isdigit()
+        password = input("Enter your password: ")
+        const = len(password) == 4 and password.isdigit()
         while not const:
             print("Invalid Pin!")
-            pin = input("Enter your pin: ")
-            const = len(pin) == 4 and pin.isdigit()
+            password = input("Enter your password: ")
+            const = len(password) == 4 and password.isdigit()
         if os.path.exists("Bank_JH.db"):
-            start.check(username,pin)
+            start.check(username,password)
         else:
             print("No account found please register to create an account")
     elif int(user) == 1:
         print("Wait while we Register you")
         time.sleep(5)
-        while True:   
+        while True:
             username = input("Enter your full name (seperated with a space): ")
+            name_verify =re.compile(r"([a-zA-Z]{3,8})",re.VERBOSE)
+            #+\s+[a-zA-Z]+\s[a-zA-Z]+[a-zA-Z]+\s)",re.VERBOSE)
+            #name_check = name_verify(username)
             name_split = username.split(" ")
             c = 0
-            x = len(name_split)
             for n in name_split:
-                if n.isalpha():
+                in_check = name_verify.match(n)
+                if in_check != None :
                     c +=1
                 else:
                     pass
-            if x != c or len(name_split) < 2:
-                print("Invalid name! Username should be only alphabets!! and should be more than")
+            if c != len(name_split):
+                print("Invalid name! Username should be only alphabets!! and should not contain space at the end")
             else:
                 break
         msg = "wait while we generate your account username"
@@ -91,8 +95,10 @@ else:
 ###########################################
         time.sleep(5)
         while True:
-            Tele = input("Enter your Contact 0500000000: ")
-            if Tele.isdigit() and len(Tele) == 10:
+            Tele = input("Enter your Contact 050-000-0000: ")
+            check_phonenumber = re.compile(r"\d\d\d-\d\d\d-\d\d\d\d")
+            checker = check_phonenumber.match(Tele)
+            if checker != None :
                 break
             else:
                 print("Invalid Input!")
@@ -108,25 +114,21 @@ else:
         time.sleep(5)
         while True:
             email = input("Enter your email: ")
-            if "@" in email and "." in email:
+            regexp = re.compile(r'''([a-zA-Z0-9._%+-]+@+[a-zA-Z0-9.-]+(\.[a-zA-Z]{2,4}))''',re.VERBOSE)
+            check_email = regexp.match(email)
+            if check_email != None :
+            #if "@" in email and "." in email and email.endswith(".com"):
                 break
             else:
                 print("Invalid Email! email must contain '@' and '.'")
         time.sleep(5)
         while True:
-            pin = input("Enter a new pin: ")
-            const = len(pin) == 4 and pin.isdigit()
+            password = input("Enter a new password: ")
+            const = len(password) == 4 and password.isdigit()
             if const:
                 break
             else:
-                print("Invalid Pin! pin must be a 4-digit number")
-        time.sleep(5)
-        while True:
-            confirm_pin = input("Confirm the pin you entered: ")
-            if confirm_pin == pin:
-                break
-            else:
-                print("Pins do not match! please try again")
+                print("Invalid Pin! password must be a 4-digit number")
         stat = ("Single","Married","Student")
         time.sleep(5)
         while True:
@@ -135,17 +137,32 @@ else:
                 break
             else:
                 print("Invalid Status!")
+        verify = re.compile(r"[a-zA-Z0-9.!£$%^&*()_+|]{8,20}")
+        while True:
+            password = input("Enter password: ")
+            check = verify.match(password)
+            if check != None:
+                break
+            else:
+                print("Create a Strong password")
+        while True:
+            print("confirm password")
+            confirm = input("Enter Password again!")
+            if confirm == password:
+                break
+            else:
+                print("Password doesn't match")
         if os.path.exists("Bank_JH.db"):
-            check_first = Sign_up_check(name,pin)
+            check_first = Sign_up_check(email,password)
             if check_first.check():
                 print("You already have an account please Sign-in")
             else:
-                customer = start.Register_Identity(name,age,gender,status,location,Tele,email,pin)
+                customer = start.Register_Identity(name,age,gender,status,location,Tele,email,password)
                 customer.register()
                 print("Account created successfully")
                 print("Please Sign-in to continue")
         else:
-            customer = start.Register_Identity(name,age,gender,status,location,Tele,email,pin)
+            customer = start.Register_Identity(name,age,gender,status,location,Tele,email,password)
             customer.register_not()
             print(f"Please sign-in to continue")
             print("Account created successfully")
