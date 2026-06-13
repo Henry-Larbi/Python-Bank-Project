@@ -2,6 +2,8 @@ import os
 import sqlite3
 import random
 import smtplib
+import random
+import string
 def greet():
     print("==============================================================")
     msg = "Welcome to JH Bank"
@@ -24,13 +26,10 @@ class Register_Identity():
     x = [x for x in range(1,10)]
     counter = random.sample(x,9)
     enter = random.sample(x,6)
-    c = str()
-    v = str()
-    for p in counter:
-        c+=str(p)
-    for n in enter:
-        v += str(n)
-    c = str(c)+str(n)
+    full_number = counter + enter
+    c= str()
+    for p in full_number:
+        c +=str(p)
     c =int(c)
     def __init__(self,name,age,gender,status,town,phone,email,password):
         self.name = name
@@ -46,10 +45,20 @@ class Register_Identity():
     def register_not(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("CREATE TABLE Customer_services(Customer_Name TEXT NOT NULL,Customer_Age TEXT NOT NULL,Customer_Gender TEXT NOT NULL,Customer_Status TEXT NOT NULL,Customer_Location TEXT NOT NULL ,Customer_Phone TEXT NOT NULL ,Customer_Email TEXT NOT NULL UNIQUE PRIMARY KEY,Customer_password NOT NULL TEXT NOT NULL,Customer_ID INT NOT NULL)")
-        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
+        cursor.execute('''
+                       CREATE TABLE Customer_services(
+                       Customer_Name TEXT NOT NULL,Customer_Age TEXT NOT NULL,Customer_Gender TEXT NOT NULL,Customer_Status TEXT NOT NULL,Customer_Location TEXT NOT NULL ,Customer_Phone TEXT NOT NULL ,Customer_Email TEXT NOT NULL UNIQUE PRIMARY KEY,Customer_password TEXT NOT NULL,Customer_ID INT NOT NULL
+                       )''')
+        cursor.execute('''
+                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
         con.commit()
-        con.close()
+        con.execute('''
+                    CREATE TABLE Account(
+                    Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID
+                    )
+                    ''',)
+        con.commit
+        con.close
         report = open("Bank_JH.txt","a")
         report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password}\n {self.account_id} \n")
         report.close()
@@ -59,7 +68,15 @@ class Register_Identity():
     def register(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password NOT NULL,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)",(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
+        cursor.execute('''
+                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password NOT NULL,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)
+                       ''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
+        con.commit()
+        con.execute('''
+                    CREATE TABLE IF NOT EXISTS Account(
+                    Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID
+                    )
+                    ''',)
         con.commit()
         con.close()
         print("Registration successful")
@@ -70,15 +87,16 @@ class Register_Identity():
         return
 
 
-def check(name,password):
+def check(name:str,password:str):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = ? ",(name,))
+        cursor.execute('''
+                       SELECT (Customer_password) FROM Customer_services WHERE Customer_Email = ? ''',(name,))
         data = cursor.fetchone()
-        if (data != None) and (name == data[0] and password == data[1]):
-            print("Sign-in successful")
-            return
-        print("Invalid credentials please try again")
+        if (data != None) and (password == data[0]):
+            return True###we will return the account details that is moving into the user account
+        else:
+            return False
 #    con = sqlite3.connect("Bank_JH.db")
 #    cursor = con.cursor()
 #    cursor.execute("SELECT * FROM Customer_services")
@@ -107,14 +125,35 @@ class Sign_up_check():
 class send_email():
     def __init__(self,email):
         self.email = email
-        self.bank_email = "customizedemail@gmail.com"
+        self.bank_email = "customisedemail@gmail.com"
+        self.credentials = Sign_up_check()
+        self.msg = f"Thank you for signing up \nHere are your credentials\n Name is {self.credentials.name} \n Pasword is {self.credentials.password} \n"
     
     def send(self):
         smtObject = smtplib.SMTP("smtp.gmail.com",587)
         smtObject.ehlo()
         smtObject.starttls()    
         smtObject.login(self.bank_email,"password")
-        smtObject.sendmail(self.bank_email, self.email, "Subject: Welcome to our bank!\n\nThank you for signing up.")
+        smtObject.sendmail(self.bank_email, self.email, self.msg)
+        smtObject.quit()
+class Passwordgenerator():
+    def __init__(self):
+        self.password = ""
+
+    def generate():
+        words = string.ascii_lowercase
+        WORDs = string.ascii_uppercase
+        num = "1234567890"
+        sym = "!£$%^&*()_+}{?/"
+        WRDs = random.sample(WORDs,k=3)
+        wrd = random.sample(words,k=3)
+        nums = random.sample(num,k=2)
+        syms = random.sample(sym,k=2)
+        sometxt = WRDs+wrd+syms+nums
+        random.shuffle(sometxt)
+        password = "".join(sometxt)
+        return password
+        
 
 
 
