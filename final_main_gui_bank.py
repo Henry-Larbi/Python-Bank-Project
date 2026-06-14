@@ -837,8 +837,6 @@ class Dashboard(QMainWindow):
         root = QHBoxLayout()
         root.setContentsMargins(0, 0, 0, 0)
         root.setSpacing(0)
-        root.addWidget(self._sidebar())
-
         self.pages = QStackedWidget()
         self.pages.addWidget(self._overview_page())       # 0
         self.pages.addWidget(self._transfer_page())       # 1
@@ -846,6 +844,8 @@ class Dashboard(QMainWindow):
         self.pages.addWidget(self._change_pwd_page())     # 3
         self.pages.addWidget(self._customer_care_page())  # 4
         self.pages.addWidget(self._profile_page())        # 5
+
+        root.addWidget(self._sidebar())
         root.addWidget(self.pages, 1)
         central.setLayout(root)
 
