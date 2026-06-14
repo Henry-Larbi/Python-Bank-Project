@@ -198,7 +198,7 @@ class LoginWindow(QWidget):
         signup_layout.addRow("Gender:", self.signup_gender)
         
         self.signup_status = QComboBox()
-        self.signup_status.addItems(["Single", "Married", "Divorced", "Widowed"])
+        self.signup_status.addItems(["Single", "Married", "Student"])
         signup_layout.addRow("Status:", self.signup_status)
         
         self.signup_location = QLineEdit()
@@ -214,10 +214,15 @@ class LoginWindow(QWidget):
         signup_layout.addRow("Email:", self.signup_email)
         
         self.signup_password = QLineEdit()
-        self.signup_password.setPlaceholderText("Create password")
+        self.signup_password.setPlaceholderText("8–20 chars, letters, numbers, special chars")
         self.signup_password.setEchoMode(QLineEdit.Password)
         signup_layout.addRow("Password:", self.signup_password)
-        
+
+        self.signup_confirm_password = QLineEdit()
+        self.signup_confirm_password.setPlaceholderText("Re-enter password")
+        self.signup_confirm_password.setEchoMode(QLineEdit.Password)
+        signup_layout.addRow("Confirm Password:", self.signup_confirm_password)
+
         signup_button = QPushButton("Create Account")
         signup_button.setStyleSheet(self.get_button_stylesheet())
         signup_button.clicked.connect(self.handle_signup)
@@ -248,7 +253,10 @@ class LoginWindow(QWidget):
             QMessageBox.critical(self, "Login Failed", "Invalid email or password")
     
     def handle_signup(self):
-        """Handle signup"""
+        """Handle signup — same validations as Bank_interface.py"""
+        from Bank_bulid_1 import Sign_up_check
+        import os
+
         name = self.signup_name.text().strip()
         age = self.signup_age.value()
         gender = self.signup_gender.currentText()
@@ -257,33 +265,64 @@ class LoginWindow(QWidget):
         phone = self.signup_phone.text().strip()
         email = self.signup_email.text().strip()
         password = self.signup_password.text().strip()
-        
-        # Validation
-        if not all([name, phone, email, password]):
+        confirm = self.signup_confirm_password.text().strip()
+
+        if not all([name, phone, email, password, location]):
             QMessageBox.warning(self, "Input Error", "Please fill all required fields")
             return
-        
-        if not re.match(r"[^@]+@[^@]+\.[^@]+", email):
+
+        # Name: each word must be alphabetic
+        name_re = re.compile(r"[a-zA-Z]{3,}")
+        for part in name.split():
+            if not name_re.match(part):
+                QMessageBox.warning(self, "Input Error", "Name must contain only letters, each word at least 3 characters")
+                return
+
+        # Phone format: 000-000-0000
+        if not re.match(r"^\d{3}-\d{3}-\d{4}$", phone):
+            QMessageBox.warning(self, "Input Error", "Phone must follow the format: 050-000-0000")
+            return
+
+        # Location: letters only
+        if not location.isalpha():
+            QMessageBox.warning(self, "Input Error", "Location must contain letters only (no spaces or numbers)")
+            return
+
+        # Email
+        if not re.match(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}", email):
             QMessageBox.warning(self, "Input Error", "Invalid email format")
             return
-        
-        if len(password) < 6:
-            QMessageBox.warning(self, "Input Error", "Password must be at least 6 characters")
+
+        # Strong password: 8–20 chars, letters/digits/special chars
+        if not re.match(r"[a-zA-Z0-9.!£$%^&*()_+|]{8,20}$", password):
+            QMessageBox.warning(self, "Input Error",
+                "Password must be 8–20 characters using letters, digits, or special characters (!£$%^&*)")
             return
-        
+
+        if password != confirm:
+            QMessageBox.warning(self, "Input Error", "Passwords do not match")
+            return
+
+        # Duplicate account check
+        if os.path.exists("Bank_JH.db"):
+            checker = Sign_up_check(email, password)
+            if checker.check():
+                QMessageBox.warning(self, "Account Exists", "You already have an account. Please sign in.")
+                return
+
         try:
-            # Register new customer
             customer = Register_Identity(name, age, gender, status, location, phone, email, password)
-            customer.register()
+            if os.path.exists("Bank_JH.db"):
+                customer.register()
+            else:
+                customer.register_not()
             QMessageBox.information(self, "Success", "Account created successfully!\nYou can now sign in.")
-            
-            # Clear signup fields
             self.signup_name.clear()
             self.signup_email.clear()
             self.signup_password.clear()
+            self.signup_confirm_password.clear()
             self.signup_phone.clear()
             self.signup_location.clear()
-            
         except Exception as e:
             QMessageBox.critical(self, "Registration Error", f"Failed to create account: {str(e)}")
     
@@ -439,6 +478,7 @@ class DashboardWindow(QMainWindow):
         self.stacked_widget.addWidget(self.create_transactions_page())
         self.stacked_widget.addWidget(self.create_transfer_page())
         self.stacked_widget.addWidget(self.create_settings_page())
+        self.stacked_widget.addWidget(self.create_customer_care_page())
         
         layout.addWidget(self.stacked_widget, 4)
         
@@ -484,6 +524,7 @@ class DashboardWindow(QMainWindow):
             ("💳 Transactions", 1),
             ("💸 Transfer Money", 2),
             ("⚙️ Settings", 3),
+            ("📞 Customer Care", 4),
         ]
         
         for text, page_index in buttons:
@@ -717,6 +758,63 @@ class DashboardWindow(QMainWindow):
         page.setLayout(layout)
         return page
     
+    def create_customer_care_page(self) -> QWidget:
+        """Customer care page — mirrors the original customer_message() feature."""
+        page = QWidget()
+        layout = QVBoxLayout()
+
+        title = QLabel("Customer Care")
+        title_font = QFont("Arial", 14, QFont.Bold)
+        title.setFont(title_font)
+        layout.addWidget(title)
+
+        info = QLabel(
+            "Hi there! Need help with your account or have a question?\n"
+            "Type your message below and our Customer Care team will respond shortly."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.care_message_input = QTextEdit()
+        self.care_message_input.setPlaceholderText("Enter your message here...")
+        self.care_message_input.setMaximumHeight(150)
+        layout.addWidget(self.care_message_input)
+
+        send_btn = QPushButton("Send Message")
+        send_btn.setMinimumHeight(40)
+        send_btn.setStyleSheet(self.get_button_stylesheet())
+        send_btn.clicked.connect(self.handle_customer_care)
+        layout.addWidget(send_btn)
+
+        self.care_status_label = QLabel("")
+        self.care_status_label.setStyleSheet("color: #28a745; padding: 5px;")
+        layout.addWidget(self.care_status_label)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def handle_customer_care(self):
+        """Save customer message to docx — same as original customer_message()."""
+        from Bank_account import customer_message
+        msg = self.care_message_input.toPlainText().strip()
+        if not msg:
+            QMessageBox.warning(self, "Empty Message", "Please enter a message before sending.")
+            return
+        reply = QMessageBox.question(
+            self, "Confirm", "Do you wish to send this message?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            try:
+                customer_message(msg)
+                self.care_message_input.clear()
+                self.care_status_label.setText("Message sent successfully. We will attend to you shortly.")
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to send message: {str(e)}")
+        else:
+            self.care_status_label.setText("Message cancelled.")
+
     def load_dashboard(self):
         """Load dashboard data"""
         self.load_transactions()
@@ -833,8 +931,9 @@ class DashboardWindow(QMainWindow):
             QMessageBox.warning(self, "Input Error", "New passwords do not match")
             return
 
-        if len(new) < 6:
-            QMessageBox.warning(self, "Input Error", "Password must be at least 6 characters")
+        if not re.match(r"[A-Za-z0-9!.{}/+\-_]{8,20}$", new):
+            QMessageBox.warning(self, "Input Error",
+                "Password must be 8–20 characters using letters, digits, or special characters (!.{}/+-_)")
             return
 
         if not check(self.email, current):
