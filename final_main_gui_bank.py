@@ -1,5 +1,5 @@
 """
-JH Bank – Final Integrated GUI
+Access Bank – Final Integrated GUI
 Integrates all logic from:
   • Bank_bulid_1.py  (registration, login, password generator, send_email)
   • Bank_account.py  (Transaction, Changepassword, Amount, customer_message)
@@ -282,14 +282,14 @@ class EmailService:
             f"If you did not request this, please ignore this message.\n"
             f"Your password remains unchanged."
         )
-        return EmailService._send(to_email, "JH Bank — Password Reset OTP", body)
+        return EmailService._send(to_email, "Access Bank — Password Reset OTP", body)
 
     @staticmethod
     def send_transaction_confirmation(to_email, amount, recipient, txn_id, remaining):
         """Email confirmation after a successful transfer."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         body = (
-            f"Transaction Confirmation — JH Bank\n\n"
+            f"Transaction Confirmation — Access Bank\n\n"
             f"Amount Sent      : GHS {amount:.2f}\n"
             f"To Account       : {recipient}\n"
             f"Transaction ID   : {txn_id}\n"
@@ -298,20 +298,20 @@ class EmailService:
             f"Payment Method   : Bank Transfer\n\n"
             f"If you did not initiate this transaction, contact support immediately."
         )
-        EmailService._send(to_email, "Transaction Confirmation — JH Bank", body)
+        EmailService._send(to_email, "Transaction Confirmation — Access Bank", body)
 
     @staticmethod
     def send_welcome(to_email, name, account_id, bank_username):
         """Welcome email on successful registration (mirrors send_email.send())."""
         body = (
-            f"Welcome to JH Bank, {name}!\n\n"
+            f"Welcome to Access Bank, {name}!\n\n"
             f"Your account has been successfully created.\n\n"
             f"Bank Username  : {bank_username}\n"
             f"Account Number : {account_id}\n\n"
             f"Please keep your credentials safe.\n\n"
-            f"Thank you for choosing JH Bank."
+            f"Thank you for choosing Access Bank."
         )
-        EmailService._send(to_email, "Welcome to JH Bank", body)
+        EmailService._send(to_email, "Welcome to Access Bank", body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -487,7 +487,7 @@ class OTPDialog(QDialog):
         self.email    = email
         self.otp_code = otp_code
         self.verified = False
-        self.setWindowTitle("OTP Verification — JH Bank")
+        self.setWindowTitle("OTP Verification — Access Bank")
         self.setModal(True)
         self.resize(430, 300)
         self.setStyleSheet(APP_STYLE)
@@ -562,7 +562,7 @@ class AuthWindow(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("JH Bank — Welcome")
+        self.setWindowTitle("Access Bank — Welcome")
         self.setGeometry(100, 100, 540, 680)
         self.setStyleSheet(APP_STYLE)
         self._build()
@@ -573,7 +573,7 @@ class AuthWindow(QWidget):
         root.setSpacing(4)
 
         # Bank header (mirrors Bank_bulid_1.greet())
-        title = QLabel("JH BANK")
+        title = QLabel("ACCESS BANK")
         title.setFont(QFont("Arial", 28, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
         title.setStyleSheet("color: #007bff; letter-spacing: 4px;")
@@ -792,7 +792,7 @@ class AuthWindow(QWidget):
             EmailService.send_welcome(email, name, account_id, bank_username)
 
             QMessageBox.information(self, "Account Created — Welcome!",
-                f"Your JH Bank account is ready!\n\n"
+                f"Your Access Bank account is ready!\n\n"
                 f"Bank Username  : {bank_username}\n"
                 f"Account Number : {account_id}\n\n"
                 "Please save these details. You can now sign in.")
@@ -825,7 +825,7 @@ class Dashboard(QMainWindow):
         self.email    = email
         self.customer = DB.get_customer(email)
         self.account  = DB.get_account(self.customer[8]) if self.customer else None
-        self.setWindowTitle(f"JH Bank — {self.customer[0] if self.customer else email}")
+        self.setWindowTitle(f"Access Bank — {self.customer[0] if self.customer else email}")
         self.setGeometry(80, 50, 1120, 730)
         self.setStyleSheet(APP_STYLE)
         self._build()
@@ -859,7 +859,7 @@ class Dashboard(QMainWindow):
         layout.setSpacing(2)
 
         # Bank title (mirrors Bank_bulid_1.greet())
-        title = QLabel("JH BANK")
+        title = QLabel("ACCESS BANK")
         title.setFont(QFont("Arial", 18, QFont.Bold))
         title.setStyleSheet("color: #ffffff; padding: 22px 10px 4px 10px; letter-spacing: 3px;")
         layout.addWidget(title)
@@ -1395,10 +1395,10 @@ class Dashboard(QMainWindow):
 # ═══════════════════════════════════════════════════════════════════════════════
 #  APPLICATION ENTRY POINT
 # ═══════════════════════════════════════════════════════════════════════════════
-class JHBankApp(QApplication):
+class AccessBankApp(QApplication):
     def __init__(self):
         super().__init__(sys.argv)
-        self.setApplicationName("JH Bank")
+        self.setApplicationName("Access Bank")
         DB.init()
         self.auth_window = AuthWindow()
         self.auth_window.login_success.connect(self._on_login)
@@ -1411,5 +1411,5 @@ class JHBankApp(QApplication):
 
 
 if __name__ == "__main__":
-    app = JHBankApp()
+    app = AccessBankApp()
     sys.exit(app.exec_())
