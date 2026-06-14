@@ -378,79 +378,77 @@ def save_customer_message(msg: str):
 # ═══════════════════════════════════════════════════════════════════════════════
 SIDEBAR_STYLE = """
 QWidget {
-    background-color: #1b2838;
-    color: #c6d4df;
+    background-color: #2c3e50;
+    color: white;
 }
 QPushButton {
-    background-color: transparent;
-    color: #8fa3b1;
+    background-color: #34495e;
+    color: white;
     border: none;
-    padding: 13px 18px;
+    padding: 10px 18px;
     text-align: left;
     font-size: 13px;
-    border-radius: 6px;
+    border-radius: 4px;
+    font-weight: bold;
 }
-QPushButton:hover  { background-color: #2a3f54; color: #ffffff; }
-QPushButton:checked { background-color: #1e6bbf; color: #ffffff; font-weight: bold; }
+QPushButton:hover  { background-color: #007bff; color: #ffffff; }
+QPushButton:checked { background-color: #007bff; color: #ffffff; font-weight: bold; }
 """
 
 APP_STYLE = """
-QMainWindow, QWidget { background-color: #f0f4f8; color: #2d3748; }
+QMainWindow, QWidget { background-color: #f5f5f5; color: #333333; }
 QLineEdit, QTextEdit, QSpinBox, QDoubleSpinBox, QComboBox {
-    border: 1.5px solid #cbd5e0;
-    border-radius: 6px;
-    padding: 8px 12px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 8px;
     background-color: #ffffff;
     font-size: 13px;
-    color: #2d3748;
+    color: #333333;
 }
 QLineEdit:focus, QTextEdit:focus, QSpinBox:focus, QDoubleSpinBox:focus {
-    border: 2px solid #3182ce;
+    border: 2px solid #007bff;
+    background-color: white;
 }
 QGroupBox {
-    border: 1.5px solid #e2e8f0;
-    border-radius: 8px;
-    padding: 16px;
-    margin-top: 14px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    padding: 10px;
+    margin-top: 10px;
     background-color: #ffffff;
     font-weight: bold;
-    color: #4a5568;
+    color: #555555;
 }
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top left;
-    padding: 0 8px;
+    padding: 0 3px;
 }
 QTableWidget {
     background-color: #ffffff;
-    border: 1.5px solid #e2e8f0;
-    border-radius: 8px;
-    gridline-color: #f7fafc;
+    border: 1px solid #ddd;
+    border-radius: 4px;
     font-size: 12px;
-    alternate-background-color: #f7fafc;
 }
-QTableWidget::item          { padding: 8px; }
-QTableWidget::item:selected { background-color: #ebf8ff; color: #2d3748; }
+QTableWidget::item          { padding: 5px; }
+QTableWidget::item:selected { background-color: #cce5ff; color: #333333; }
 QHeaderView::section {
-    background-color: #f7fafc;
+    background-color: #f8f9fa;
     border: none;
-    border-bottom: 2px solid #e2e8f0;
-    padding: 10px;
+    border-bottom: 1px solid #ddd;
+    padding: 8px;
     font-weight: bold;
-    color: #4a5568;
+    color: #555555;
 }
-QTabWidget::pane { border: 1.5px solid #e2e8f0; border-radius: 8px; background: white; }
+QTabWidget::pane { border: 1px solid #ddd; }
 QTabBar::tab {
-    background-color: #e2e8f0;
-    padding: 10px 26px;
-    border-radius: 4px 4px 0 0;
-    color: #4a5568;
-    font-weight: 500;
+    background-color: #e9ecef;
+    padding: 8px 20px;
+    border: 1px solid #ddd;
 }
-QTabBar::tab:selected { background-color: #ffffff; color: #3182ce; border-bottom: 2px solid #3182ce; }
+QTabBar::tab:selected { background-color: white; border-bottom: 2px solid #007bff; }
 """
 
-def _btn(text, color="#3182ce", hover="#2563ae", height=40):
+def _btn(text, color="#007bff", hover="#0056b3", height=40):
     b = QPushButton(text)
     b.setMinimumHeight(height)
     b.setStyleSheet(f"""
@@ -464,15 +462,15 @@ def _btn(text, color="#3182ce", hover="#2563ae", height=40):
             font-size: 13px;
         }}
         QPushButton:hover   {{ background-color: {hover}; }}
-        QPushButton:pressed {{ background-color: #1a3a6e; }}
+        QPushButton:pressed {{ background-color: #003d82; }}
     """)
     return b
 
-def primary_btn(text, height=40):  return _btn(text, "#3182ce", "#2563ae", height)
-def success_btn(text, height=40):  return _btn(text, "#38a169", "#2f855a", height)
-def warning_btn(text, height=40):  return _btn(text, "#d69e2e", "#b7791f", height)
-def danger_btn(text, height=40):   return _btn(text, "#e53e3e", "#c53030", height)
-def purple_btn(text, height=40):   return _btn(text, "#805ad5", "#6b46c1", height)
+def primary_btn(text, height=40):  return _btn(text, "#007bff", "#0056b3", height)
+def success_btn(text, height=40):  return _btn(text, "#28a745", "#218838", height)
+def warning_btn(text, height=40):  return _btn(text, "#ffc107", "#e0a800", height)
+def danger_btn(text, height=40):   return _btn(text, "#dc3545", "#c82333", height)
+def purple_btn(text, height=40):   return _btn(text, "#6f42c1", "#5a32a3", height)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -491,7 +489,7 @@ class OTPDialog(QDialog):
         self.verified = False
         self.setWindowTitle("OTP Verification — JH Bank")
         self.setModal(True)
-        self.setFixedSize(430, 270)
+        self.resize(430, 300)
         self.setStyleSheet(APP_STYLE)
         self._build()
 
@@ -565,7 +563,7 @@ class AuthWindow(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("JH Bank — Welcome")
-        self.setFixedSize(540, 680)
+        self.setGeometry(100, 100, 540, 680)
         self.setStyleSheet(APP_STYLE)
         self._build()
 
@@ -576,14 +574,14 @@ class AuthWindow(QWidget):
 
         # Bank header (mirrors Bank_bulid_1.greet())
         title = QLabel("JH BANK")
-        title.setFont(QFont("Arial", 30, QFont.Bold))
+        title.setFont(QFont("Arial", 28, QFont.Bold))
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("color: #3182ce; letter-spacing: 4px;")
+        title.setStyleSheet("color: #007bff; letter-spacing: 4px;")
         root.addWidget(title)
 
         sub = QLabel("Secure Banking Solutions")
         sub.setAlignment(Qt.AlignCenter)
-        sub.setStyleSheet("color: #718096; font-size: 12px; margin-bottom: 16px;")
+        sub.setStyleSheet("color: #666666; font-size: 12px; margin-bottom: 16px;")
         root.addWidget(sub)
 
         tabs = QTabWidget()
@@ -867,12 +865,12 @@ class Dashboard(QMainWindow):
         layout.addWidget(title)
 
         name_lbl = QLabel(self.customer[0] if self.customer else "")
-        name_lbl.setStyleSheet("color: #7fa8c9; font-size: 11px; padding: 0 10px 16px 10px;")
+        name_lbl.setStyleSheet("color: #aaaaaa; font-size: 11px; padding: 0 10px 16px 10px;")
         layout.addWidget(name_lbl)
 
         sep = QFrame()
         sep.setFrameShape(QFrame.HLine)
-        sep.setStyleSheet("color: #2a3f54; margin: 0 4px 10px 4px;")
+        sep.setStyleSheet("color: #3d566e; margin: 0 4px 10px 4px;")
         layout.addWidget(sep)
 
         nav_items = [
@@ -898,15 +896,15 @@ class Dashboard(QMainWindow):
         logout.setMinimumHeight(46)
         logout.setStyleSheet("""
             QPushButton {
-                background-color: #3d1515;
-                color: #ffb3b3;
+                background-color: #dc3545;
+                color: white;
                 border: none;
-                border-radius: 6px;
+                border-radius: 4px;
                 padding: 10px;
                 font-weight: bold;
                 text-align: left;
             }
-            QPushButton:hover { background-color: #c53030; color: white; }
+            QPushButton:hover { background-color: #c82333; color: white; }
         """)
         logout.clicked.connect(self._logout)
         layout.addWidget(logout)
@@ -934,16 +932,16 @@ class Dashboard(QMainWindow):
         name = self.customer[0] if self.customer else "Customer"
         greet = QLabel(f"Welcome back, {name}!")
         greet.setFont(QFont("Arial", 22, QFont.Bold))
-        greet.setStyleSheet("color: #2d3748;")
+        greet.setStyleSheet("color: #333333;")
         layout.addWidget(greet)
 
-        # Balance card (gradient)
+        # Balance card
         bal_card = QWidget()
         bal_card.setMinimumHeight(130)
         bal_card.setStyleSheet("""
             background: qlineargradient(x1:0, y1:0, x2:1, y2:0,
-                stop:0 #2563ae, stop:1 #1a4080);
-            border-radius: 14px;
+                stop:0 #007bff, stop:1 #0056b3);
+            border-radius: 8px;
         """)
         bcl = QVBoxLayout()
         bcl.setContentsMargins(28, 20, 28, 20)
