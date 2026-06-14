@@ -51,7 +51,7 @@ class Changepassword():
     def change(self):
         conn  = sqlite3.connect("Bank_JH.db")
         cursor = conn.cursor()
-        cursor.execute("UPDATE Customer_services SET Customer_pin = ? WHERE  Customer_Name = ?",(self.new_pin,self.email))
+        cursor.execute("UPDATE Customer_services SET Customer_password = ? WHERE Customer_Email = ?",(self.new_pin,self.email))
         conn.commit()
         conn.close()
         print("Your password was updated successfully!")
@@ -65,7 +65,7 @@ class Amount():
     def check_amount(self):
         conn = sqlite3.connect("Bank_JH.db")
         cur = conn.cursor()
-        cur.execute("SELECT * FROM Account where Account_id = ?",(self.account))
+        cur.execute("SELECT * FROM Account where Account_id = ?",(self.account,))
         amount = cur.fetchone()
         if amount == None:
             current = "No Transaction recorded"
@@ -79,43 +79,45 @@ class Amount():
 
 
 class Transaction():
-    def __init__(self,amount:int,account:int):
+    def __init__(self, amount: int, recipient_account, sender_account=None):
         self.amount = amount
         self.transaction_id = int()
-        self.account_id = account
+        self.account_id = recipient_account
+        self.sender_account = sender_account
 
     def check(self):
+        account_to_check = self.sender_account if self.sender_account else self.account_id
         conn = sqlite3.connect("Bank_JH.db")
         cursor = conn.cursor()
-        cursor.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (self.account_id,))
-        #cursor.execute("SELECT  FROM  Account INNER JOIN Customer_services ON Account.Account_id = Customer_services.Customer_ID  WHERE Customer_services.Customer_Name= ?",(self.name))
+        cursor.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(account_to_check),))
         amount = cursor.fetchone()
         conn.commit()
         conn.close()
-        if amount == None:
+        if amount is None:
             print("Account not found.")
             return False
         current = float(amount[0])
         if current >= self.amount:
             return True
         else:
-            print("Insufficient Amount Please Recharge!!")
+            print("Insufficient funds. Please recharge!")
             return False
-        
 
-
-        #cursor.execute("SELECT Current_ammount FROM Account WHERE ")
-    def send(self,confirm:str)-> bool:
+    def send(self, confirm: str) -> bool:
         if confirm:
+            sender = self.sender_account if self.sender_account else self.account_id
             conn = sqlite3.connect("Bank_JH.db")
             cursor = conn.cursor()
-            cursor.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id = ?", (self.amount, self.account_id))
-            cursor.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (self.account_id,))
+            cursor.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id = ?",
+                           (self.amount, str(sender)))
+            cursor.execute("UPDATE Account SET Current_amount = Current_amount + ? WHERE Account_id = ?",
+                           (self.amount, str(self.account_id)))
+            cursor.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(sender),))
             balance = cursor.fetchone()
             new_balance = balance[0] if balance is not None else None
             conn.commit()
             conn.close()
-            print("Transaction was successfull!")
+            print("Transaction was successful!")
             return new_balance
         return None
 
@@ -170,11 +172,11 @@ def get_account_number(email:str):
     cur = conn.cursor()
     cur.execute("SELECT * FROM Customer_services WHERE  Customer_Email= ? ",(email,))
     account = cur.fetchone()
-    conn.commit
+    conn.commit()
     cur.execute('''
                 SELECT * FROM Account WHERE Account_id = ? ''',(account[8],))
     current_amount = cur.fetchone()
-    conn.commit
+    conn.commit()
     conn.close()
     return account[8],int(current_amount[2])
 

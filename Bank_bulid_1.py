@@ -2,7 +2,6 @@ import os
 import sqlite3
 import random
 import smtplib
-import random
 import string
 def greet():
     print("==============================================================")
@@ -56,8 +55,8 @@ class Register_Identity():
                     Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID
                     )
                     ''',)
-        con.commit
-        con.close
+        con.commit()
+        con.close()
         report = open("Bank_JH.txt","a")
         report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password}\n {self.account_id} \n")
         report.close()
@@ -119,18 +118,17 @@ class Sign_up_check():
     def check(self):
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
-        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = ? ",(self.name,))
+        cursor.execute("SELECT Customer_Email, Customer_password FROM Customer_services WHERE Customer_Email = ? ",(self.name,))
         data = cursor.fetchone()
         if (data != None) and (self.name == data[0] and self.password == data[1]):
             print("You already have an account please Sign-in")
             return True
         return False
 class send_email():
-    def __init__(self,email):
+    def __init__(self, email, name="", password=""):
         self.email = email
         self.bank_email = "customisedemail@gmail.com"
-        self.credentials = Sign_up_check()
-        self.msg = f"Thank you for signing up \nHere are your credentials\n Name is {self.credentials.name} \n Pasword is {self.credentials.password} \n"
+        self.msg = f"Thank you for signing up \nHere are your credentials\n Name is {name} \n Password is {password} \n"
     
     def send(self):
         smtObject = smtplib.SMTP("smtp.gmail.com",587)
@@ -143,6 +141,7 @@ class Passwordgenerator():
     def __init__(self):
         self.password = ""
 
+    @staticmethod
     def generate():
         words = string.ascii_lowercase
         WORDs = string.ascii_uppercase

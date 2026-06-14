@@ -25,7 +25,11 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QDate, QTimer, pyqtSignal, QThread
 from PyQt5.QtGui import QIcon, QFont, QColor, QPalette, QPixmap
-from PyQt5.QtChart import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
+try:
+    from PyQt5.QtChart import QChart, QChartView, QBarSeries, QBarSet, QBarCategoryAxis, QValueAxis
+    CHARTS_AVAILABLE = True
+except ImportError:
+    CHARTS_AVAILABLE = False
 from PyQt5.QtCore import Qt as QtCore_Qt
 import smtplib
 from email.message import EmailMessage
@@ -345,6 +349,59 @@ class LoginWindow(QWidget):
                 background-color: #003d82;
             }
         """
+
+
+class OTPDialog(QDialog):
+    """Modal dialog that sends an OTP and asks the user to enter it."""
+
+    def __init__(self, email: str, otp_code: str, parent=None):
+        super().__init__(parent)
+        self.email = email
+        self.otp_code = otp_code
+        self.verified = False
+        self._init_ui()
+
+    def _init_ui(self):
+        self.setWindowTitle("OTP Verification")
+        self.setModal(True)
+        self.setFixedWidth(380)
+        layout = QVBoxLayout()
+
+        info = QLabel(
+            f"A One-Time Password has been sent to:\n{self.email}\n\n"
+            "Enter the code below to continue.\n"
+            "The code expires in 10 minutes."
+        )
+        info.setWordWrap(True)
+        layout.addWidget(info)
+
+        self.otp_input = QLineEdit()
+        self.otp_input.setPlaceholderText("Enter OTP code")
+        self.otp_input.setMaxLength(10)
+        layout.addWidget(self.otp_input)
+
+        verify_btn = QPushButton("Verify")
+        verify_btn.setStyleSheet(LoginWindow.get_button_stylesheet())
+        verify_btn.clicked.connect(self._verify)
+        layout.addWidget(verify_btn)
+
+        resend_btn = QPushButton("Resend Code")
+        resend_btn.clicked.connect(self._resend)
+        layout.addWidget(resend_btn)
+
+        self.setLayout(layout)
+
+    def _verify(self):
+        if self.otp_input.text().strip() == self.otp_code:
+            self.verified = True
+            self.accept()
+        else:
+            QMessageBox.warning(self, "Incorrect Code", "The OTP you entered is wrong. Try again.")
+
+    def _resend(self):
+        sender = Changepassword(self.email, "", self.otp_code)
+        sender.confirm_email()
+        QMessageBox.information(self, "Code Resent", "A new OTP has been sent to your email.")
 
 
 class DashboardWindow(QMainWindow):
@@ -683,65 +740,123 @@ class DashboardWindow(QMainWindow):
         """Handle money transfer"""
         recipient = self.recipient_account.text().strip()
         amount = self.transfer_amount.value()
-        
+
         if not recipient or amount <= 0:
-            QMessageBox.warning(self, "Input Error", "Please enter valid account and amount")
+            QMessageBox.warning(self, "Input Error", "Please enter a valid account number and amount")
             return
-        
+
         if not recipient.isdigit() or len(recipient) != 15:
-            QMessageBox.warning(self, "Input Error", "Account number must be 15 digits")
+            QMessageBox.warning(self, "Input Error", "Account number must be exactly 15 digits")
             return
-        
+
+        sender_account = str(self.customer_info[8])
+
         try:
-            transaction = Transaction(amount, recipient)
-            if transaction.check():
-                QMessageBox.information(self, "Success", f"Transfer of GHS {amount:.2f} completed successfully!")
-                self.recipient_account.clear()
-                self.transfer_amount.setValue(0)
-                self.load_transactions()
-            else:
-                QMessageBox.warning(self, "Transfer Failed", "Insufficient funds or invalid account")
+            txn = Transaction(amount, recipient, sender_account)
+            if not txn.check():
+                QMessageBox.warning(self, "Transfer Failed", "Insufficient funds or sender account not found")
+                return
+
+            remaining = txn.send(True)
+            txn_id = txn.transaction_generator()
+            self._record_transaction(txn_id, sender_account, recipient, amount)
+            self._send_transaction_email(amount, recipient, txn_id, remaining)
+
+            QMessageBox.information(
+                self, "Transfer Successful",
+                f"GHS {amount:.2f} sent to account {recipient}\n"
+                f"Transaction ID: {txn_id}\n"
+                f"Remaining Balance: GHS {remaining:.2f}\n\n"
+                "A confirmation has been sent to your email."
+            )
+            self.recipient_account.clear()
+            self.transfer_amount.setValue(0)
+            self.load_transactions()
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Transfer failed: {str(e)}")
+
+    def _record_transaction(self, txn_id, from_account, to_account, amount):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DatabaseManager.DB_FILE)
+        cursor = conn.cursor()
+        cursor.execute(
+            "INSERT INTO Transactions(Transaction_ID,From_Account,To_Account,Amount,Transaction_Date,Status) "
+            "VALUES(?,?,?,?,?,?)",
+            (str(txn_id), from_account, to_account, amount, now, "Completed")
+        )
+        conn.commit()
+        conn.close()
+
+    def _send_transaction_email(self, amount, recipient, txn_id, remaining):
+        server_mail = "jackhenrykofiobuobilarbi@gmail.com"
+        server_password = "nqxq rlam qzzk wpwr"
+        msg = EmailMessage()
+        msg['Subject'] = 'Transaction Confirmation – JH Bank'
+        msg['From'] = server_mail
+        msg['To'] = self.email
+        msg['Reply-To'] = "no-reply@gmail.com"
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        msg.set_content(
+            f"Transaction Confirmation\n\n"
+            f"Amount Sent : GHS {amount:.2f}\n"
+            f"To Account  : {recipient}\n"
+            f"Transaction ID : {txn_id}\n"
+            f"Date & Time : {now}\n"
+            f"Remaining Balance : GHS {remaining:.2f}\n\n"
+            "If you did not initiate this transaction, contact support immediately."
+        )
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587) as server:
+                server.ehlo()
+                server.starttls()
+                server.login(server_mail, server_password)
+                server.send_message(msg)
+        except Exception:
+            pass  # Email failure must not block a completed transfer
     
+    @staticmethod
+    def _generate_otp() -> str:
+        digits = list(range(1, 10))
+        return "".join(str(d) for d in random.sample(digits, 6))
+
     def handle_password_change(self):
-        """Handle password change"""
+        """Handle password change with OTP email verification"""
         current = self.current_password.text()
         new = self.new_password.text()
         confirm = self.confirm_password.text()
-        
+
         if not all([current, new, confirm]):
             QMessageBox.warning(self, "Input Error", "Please fill all password fields")
             return
-        
+
         if new != confirm:
-            QMessageBox.warning(self, "Input Error", "New passwords don't match")
+            QMessageBox.warning(self, "Input Error", "New passwords do not match")
             return
-        
+
         if len(new) < 6:
             QMessageBox.warning(self, "Input Error", "Password must be at least 6 characters")
             return
-        
-        # Verify current password
+
         if not check(self.email, current):
             QMessageBox.warning(self, "Error", "Current password is incorrect")
             return
-        
-        try:
-            # Update password in database
-            conn = sqlite3.connect("Bank_JH.db")
-            cursor = conn.cursor()
-            cursor.execute("UPDATE Customer_services SET Customer_password = ? WHERE Customer_Email = ?",
-                         (new, self.email))
-            conn.commit()
-            conn.close()
-            
-            QMessageBox.information(self, "Success", "Password changed successfully!")
-            self.current_password.clear()
-            self.new_password.clear()
-            self.confirm_password.clear()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to change password: {str(e)}")
+
+        # Generate OTP and send to user's email
+        otp_code = self._generate_otp()
+        changer = Changepassword(self.email, new, otp_code)
+        changer.confirm_email()
+
+        # Show OTP dialog — user must verify before the DB is updated
+        dialog = OTPDialog(self.email, otp_code, self)
+        if dialog.exec_() == QDialog.Accepted and dialog.verified:
+            try:
+                changer.change()
+                QMessageBox.information(self, "Success", "Password changed successfully!")
+                self.current_password.clear()
+                self.new_password.clear()
+                self.confirm_password.clear()
+            except Exception as e:
+                QMessageBox.critical(self, "Error", f"Failed to update password: {str(e)}")
     
     def show_about(self):
         """Show about dialog"""
@@ -753,7 +868,9 @@ class DashboardWindow(QMainWindow):
     def logout(self):
         """Logout and return to login"""
         self.close()
-        self.parent().show() if self.parent() else None
+        app = QApplication.instance()
+        if hasattr(app, 'login_window'):
+            app.login_window.show()
     
     @staticmethod
     def get_stylesheet():
