@@ -3,6 +3,7 @@ import sqlite3
 import random
 import smtplib
 import string
+from Bank_account import BANK_EMAIL, BANK_EMAIL_PASSWORD
 def greet():
     print("==============================================================")
     msg = "Welcome to JH Bank"
@@ -127,14 +128,15 @@ class Sign_up_check():
 class send_email():
     def __init__(self, email, name="", password=""):
         self.email = email
-        self.bank_email = "customisedemail@gmail.com"
+        self.bank_email = BANK_EMAIL
+        self.bank_password = BANK_EMAIL_PASSWORD
         self.msg = f"Thank you for signing up \nHere are your credentials\n Name is {name} \n Password is {password} \n"
-    
+
     def send(self):
-        smtObject = smtplib.SMTP("smtp.gmail.com",587)
+        smtObject = smtplib.SMTP("smtp.gmail.com", 587)
         smtObject.ehlo()
-        smtObject.starttls()    
-        smtObject.login(self.bank_email,"password")
+        smtObject.starttls()
+        smtObject.login(self.bank_email, self.bank_password)
         smtObject.sendmail(self.bank_email, self.email, self.msg)
         smtObject.quit()
 class Passwordgenerator():

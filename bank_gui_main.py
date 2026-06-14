@@ -37,7 +37,7 @@ from email.message import EmailMessage
 # Import the original bank modules
 try:
     from Bank_bulid_1 import Register_Identity, check, greet
-    from Bank_account import Changepassword, Amount, Transaction, Account
+    from Bank_account import Changepassword, Amount, Transaction, Account, BANK_EMAIL, BANK_EMAIL_PASSWORD
 except ImportError as e:
     print(f"Warning: Could not import bank modules: {e}")
 
@@ -886,8 +886,8 @@ class DashboardWindow(QMainWindow):
         conn.close()
 
     def _send_transaction_email(self, amount, recipient, txn_id, remaining):
-        server_mail = "jackhenrykofiobuobilarbi@gmail.com"
-        server_password = "nqxq rlam qzzk wpwr"
+        server_mail = BANK_EMAIL
+        server_password = BANK_EMAIL_PASSWORD
         msg = EmailMessage()
         msg['Subject'] = 'Transaction Confirmation – JH Bank'
         msg['From'] = server_mail

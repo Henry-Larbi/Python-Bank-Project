@@ -6,6 +6,10 @@ import smtplib
 from email.message import EmailMessage
 import os
 import docx
+
+# Single source of truth for the bank's outgoing email credentials
+BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
+BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
 class Account():
     def __init__(self, balance):
         self.balance = balance
@@ -22,8 +26,8 @@ class Changepassword():
     def __init__(self,email,new_pin,code):
         self.email = email
         self.new_pin = new_pin
-        self.servermail = "jackhenrykofiobuobilarbi@gmail.com"
-        self.serverpassword = "nqxq rlam qzzk wpwr"
+        self.servermail = BANK_EMAIL
+        self.serverpassword = BANK_EMAIL_PASSWORD
         self.confidential_code= code 
 
     def confirm_email(self):
