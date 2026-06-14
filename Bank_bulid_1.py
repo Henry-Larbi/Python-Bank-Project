@@ -23,14 +23,13 @@ def error_capture_1():
 ##################################
 #registration validation
 class Register_Identity():
-    x = [x for x in range(1,10)]
-    counter = random.sample(x,9)
-    enter = random.sample(x,6)
-    full_number = counter + enter
-    c= str()
-    for p in full_number:
-        c +=str(p)
-    c =int(c)
+    @staticmethod
+    def _generate_account_id():
+        # Build a fresh 15-digit account number for each customer.
+        digits = [d for d in range(1, 10)]
+        full_number = random.sample(digits, 9) + random.sample(digits, 6)
+        return int("".join(str(p) for p in full_number))
+
     def __init__(self,name,age,gender,status,town,phone,email,password):
         self.name = name
         self.age = age
@@ -40,7 +39,7 @@ class Register_Identity():
         self.phone = phone
         self.email = email
         self.password = password
-        self.account_id = Register_Identity.c
+        self.account_id = Register_Identity._generate_account_id()
         
     def register_not(self):
         con = sqlite3.connect("Bank_JH.db")
@@ -69,19 +68,23 @@ class Register_Identity():
         con = sqlite3.connect("Bank_JH.db")
         cursor = con.cursor()
         cursor.execute('''
-                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password NOT NULL,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)
+                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status,Customer_Location,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)
                        ''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
-        con.commit()
         con.execute('''
                     CREATE TABLE IF NOT EXISTS Account(
                     Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID
                     )
                     ''',)
+        # Create the customer's account with a starting balance.
+        starting_balance = 0.0   # change this if you want new accounts to start with funds
+        cursor.execute('''
+                       INSERT INTO Account(Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID)
+                       VALUES(?,?,?,?,?)
+                       ''',(str(self.account_id), self.account_id, starting_balance, None, None))
         con.commit()
         con.close()
         print("Registration successful")
         report = open("Bank_JH.txt","w+")
-        report.write(f"{self.counter}")
         report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password} \n {self.account_id}\n")
         report.close()
         return
