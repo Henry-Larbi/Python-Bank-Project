@@ -84,7 +84,7 @@ class Register_Identity():
         con.commit()
         con.close()
         print("Registration successful")
-        report = open("Bank_JH.txt","w+")
+        report = open("Bank_JH.txt","a")
         report.write(f"{self.name} \n {self.age}\n {self.gender}\n {self.status}\n {self.town} \n {self.phone} \n {self.email} \n {self.password} \n {self.account_id}\n")
         report.close()
         return

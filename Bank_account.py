@@ -139,7 +139,7 @@ class Transaction():
     def transaction_report(self):
         transaction_day = datetime.today()
         transaction_time = time.strftime("%H:%M:%S")
-        with open("Bank_Transaction.txt", "w+") as transact:
+        with open("Bank_Transaction.txt", "a") as transact:
             transact.write("Transaction Initiated\n")
             transact.write(f"Account {self.account_id} sent GHc{self.amount:.2f} at {transaction_time}, {transaction_day}\n")
             transact.write("Transaction Successful \n")
