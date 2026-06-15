@@ -6,16 +6,7 @@ BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
 
 
 def _send(to_email, subject, body):
-    msg = (
-        f"Subject: {subject}\n"
-        f"From: {BANK_EMAIL}\n"
-        f"To: {to_email}\n"
-        f"Reply-To: no-reply@gmail.com\n"
-        f"MIME-Version: 1.0\n"
-        f"Content-Type: text/plain; charset=utf-8\n"
-        f"Content-Transfer-Encoding: 8bit\n"
-        f"\n{body}"
-    )
+    msg = f"Subject: {subject}\nFrom: {BANK_EMAIL}\nTo: {to_email}\nReply-To: no-reply@gmail.com\n\n{body}"
     try:
         smtObject = smtplib.SMTP_SSL("smtp.gmail.com", 465)
         smtObject.ehlo()
