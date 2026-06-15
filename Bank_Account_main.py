@@ -14,9 +14,9 @@ from Bank_account import get_account_number
 const_email = sys.argv[1]
 
 print("\n")
-account_number,current_amount = get_account_number(const_email)
+sender_account,current_amount = get_account_number(const_email)
 print("-----------------------------------------------------------------")
-print(f"Your account number is: {account_number}")
+print(f"Your account number is: {sender_account}")
 print(f"Current  Balance: GHS {current_amount:.2f}")
 print("-----------------------------------------------------------------")
 print("What do you wish to do ?")
@@ -30,8 +30,8 @@ while True:
     else:
         if com == 1:
             while True:
-                account_number = input("Enter the account number ? ").strip()
-                if not (account_number.isdigit() and len(account_number) == 15):
+                recipient_account = input("Enter the recipient's account number: ").strip()
+                if not (recipient_account.isdigit() and len(recipient_account) == 15):
                     print("Invalid account number. It must be exactly 15 digits.")
                     continue
 
@@ -46,7 +46,7 @@ while True:
                     print("Invalid amount. Enter a numeric value.")
                     continue
 
-                transfer = Transaction(amount, account_number)
+                transfer = Transaction(amount, recipient_account, sender_account)
                 confirm = transfer.check()
                 if not confirm:
                     continue
@@ -61,7 +61,7 @@ while True:
                 if remaining_balance is None:
                     remaining_balance = "N/A"
                 print(
-                    f"Your transfer of {amount:.2f} GHS to {account_number} was successful on {date_text} at {time_text}.\n"
+                    f"Your transfer of {amount:.2f} GHS to {recipient_account} was successful on {date_text} at {time_text}.\n"
                     f"Transaction Reference: {transaction_id}\n"
                     f"Payment Method: Bank Transfer\n"
                     f"Remaining Balance: {remaining_balance} GHS\n"
@@ -83,7 +83,7 @@ while True:
                 return code 
             actual_code = codegenerater()
             print("We've sent a One-Time Password (OTP) to your registered email address. Please check your inbox and enter the code below to proceed.\nThe code expires in 10 minutes. If you don't see it, check your spam or junk folder.\n")
-            starter = Changepassword("jamesaningtaylor@gmail.com","4545",actual_code)
+            starter = Changepassword(const_email, "", actual_code)
             starter.confirm_email()
             while True:
                 nex_command = input("Didn't receive a code? [Resend Code] (Y/N): ")
@@ -106,7 +106,7 @@ while True:
                                 print("wait while we update your password")
                                 time.sleep(3)
                                 start = Changepassword(email=const_email,new_pin=new_password,code=actual_code)
-                                starter.change()
+                                start.change()
                                 break
 
                         break
