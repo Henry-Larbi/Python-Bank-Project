@@ -247,12 +247,21 @@ class DB:
 class EmailService:
     @staticmethod
     def _send(to_email, subject, body):
-        msg = f"Subject: {subject}\nFrom: {BANK_EMAIL}\nTo: {to_email}\nReply-To: no-reply@gmail.com\n\n{body}"
+        msg = (
+            f"Subject: {subject}\n"
+            f"From: {BANK_EMAIL}\n"
+            f"To: {to_email}\n"
+            f"Reply-To: no-reply@gmail.com\n"
+            f"MIME-Version: 1.0\n"
+            f"Content-Type: text/plain; charset=utf-8\n"
+            f"Content-Transfer-Encoding: 8bit\n"
+            f"\n{body}"
+        )
         try:
             smtObject = smtplib.SMTP_SSL("smtp.gmail.com", 465)
             smtObject.ehlo()
             smtObject.login(BANK_EMAIL, BANK_EMAIL_PASSWORD)
-            smtObject.sendmail(BANK_EMAIL, to_email, msg)
+            smtObject.sendmail(BANK_EMAIL, to_email, msg.encode("utf-8"))
             smtObject.quit()
             return True
         except smtplib.SMTPAuthenticationError:
