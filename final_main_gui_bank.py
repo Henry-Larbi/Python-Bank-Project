@@ -249,9 +249,8 @@ class EmailService:
     def _send(to_email, subject, body):
         msg = f"Subject: {subject}\nFrom: {BANK_EMAIL}\nTo: {to_email}\nReply-To: no-reply@gmail.com\n\n{body}"
         try:
-            smtObject = smtplib.SMTP("smtp.gmail.com", 587)
+            smtObject = smtplib.SMTP_SSL("smtp.gmail.com", 465)
             smtObject.ehlo()
-            smtObject.starttls()
             smtObject.login(BANK_EMAIL, BANK_EMAIL_PASSWORD)
             smtObject.sendmail(BANK_EMAIL, to_email, msg)
             smtObject.quit()
