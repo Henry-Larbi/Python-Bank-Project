@@ -247,18 +247,14 @@ class DB:
 class EmailService:
     @staticmethod
     def _send(to_email, subject, body):
-        msg = EmailMessage()
-        msg['Subject'] = subject
-        msg['From'] = BANK_EMAIL
-        msg['To'] = to_email
-        msg['Reply-To'] = "no-reply@gmail.com"
-        msg.set_content(body)
+        msg = f"Subject: {subject}\nFrom: {BANK_EMAIL}\nTo: {to_email}\nReply-To: no-reply@gmail.com\n\n{body}"
         try:
-            with smtplib.SMTP("smtp.gmail.com", 587) as server:
-                server.ehlo()
-                server.starttls()
-                server.login(BANK_EMAIL, BANK_EMAIL_PASSWORD)
-                server.send_message(msg)
+            smtObject = smtplib.SMTP("smtp.gmail.com", 587)
+            smtObject.ehlo()
+            smtObject.starttls()
+            smtObject.login(BANK_EMAIL, BANK_EMAIL_PASSWORD)
+            smtObject.sendmail(BANK_EMAIL, to_email, msg)
+            smtObject.quit()
             return True
         except smtplib.SMTPAuthenticationError:
             print("ERROR: Email authentication failed. Check credentials / app password.")
