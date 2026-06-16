@@ -240,6 +240,25 @@ class DB:
                 f"Transaction Successful\n---\n"
             )
 
+    @staticmethod
+    def deposit(account_id, amount):
+        """Credit an account with the deposit amount. Returns (new_balance, error)."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT Account_id FROM Account WHERE Account_id = ?", (str(account_id),))
+        if cur.fetchone() is None:
+            conn.close()
+            return None, "Account not found."
+        cur.execute(
+            "UPDATE Account SET Current_amount = Current_amount + ? WHERE Account_id = ?",
+            (amount, str(account_id))
+        )
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(account_id),))
+        new_balance = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return new_balance, None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EMAIL SERVICE  (from Bank_account.py Changepassword + send_email)
@@ -307,6 +326,34 @@ class EmailService:
             f"Thank you for choosing Access Bank."
         )
         EmailService._send(to_email, "Welcome to Access Bank", body)
+
+    @staticmethod
+    def send_deposit_otp(to_email, otp_code, amount):
+        """OTP authorization email sent before a deposit is processed."""
+        body = (
+            f"Deposit Authorization — Access Bank\n\n"
+            f"A deposit of GHS {amount:.2f} has been requested on your account.\n\n"
+            f"Authorization Code: {otp_code}\n\n"
+            f"This code expires in 10 minutes and is for single use only.\n"
+            f"Never share it with anyone.\n\n"
+            f"If you did not initiate this deposit, please contact support immediately."
+        )
+        return EmailService._send(to_email, "Access Bank — Deposit Authorization OTP", body)
+
+    @staticmethod
+    def send_deposit_confirmation(to_email, amount, txn_id, new_balance):
+        """Confirmation email after a successful deposit."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = (
+            f"Deposit Confirmation — Access Bank\n\n"
+            f"Amount Deposited : GHS {amount:.2f}\n"
+            f"Transaction ID   : {txn_id}\n"
+            f"Date & Time      : {now}\n"
+            f"New Balance      : GHS {new_balance:.2f}\n\n"
+            f"Your deposit has been processed successfully.\n\n"
+            f"If you did not initiate this transaction, contact support immediately."
+        )
+        EmailService._send(to_email, "Deposit Confirmation — Access Bank", body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -839,6 +886,7 @@ class Dashboard(QMainWindow):
         self.pages.addWidget(self._change_pwd_page())     # 3
         self.pages.addWidget(self._customer_care_page())  # 4
         self.pages.addWidget(self._profile_page())        # 5
+        self.pages.addWidget(self._deposit_page())        # 6
 
         root.addWidget(self._sidebar())
         root.addWidget(self.pages, 1)
@@ -871,6 +919,7 @@ class Dashboard(QMainWindow):
         nav_items = [
             ("   Overview",             0),
             ("   Send Money",           1),
+            ("   Deposit Money",        6),
             ("   Transaction History",  2),
             ("   Change Password",      3),
             ("   Customer Care",        4),
@@ -968,7 +1017,11 @@ class Dashboard(QMainWindow):
         sb.clicked.connect(lambda: self._nav(1))
         qa_row.addWidget(sb)
 
-        hb = success_btn("  View Transactions")
+        db = success_btn("  Deposit Money")
+        db.clicked.connect(lambda: self._nav(6))
+        qa_row.addWidget(db)
+
+        hb = warning_btn("  View Transactions")
         hb.clicked.connect(lambda: self._nav(2))
         qa_row.addWidget(hb)
 
@@ -1378,6 +1431,87 @@ class Dashboard(QMainWindow):
         layout.addStretch()
         page.setLayout(layout)
         return page
+
+    # ── Deposit page ──────────────────────────────────────────────────────────
+    def _deposit_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Deposit Money")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        note = QLabel(
+            "Enter the amount you wish to deposit into your account.\n"
+            "A One-Time Password (OTP) will be sent to your registered email\n"
+            "to authorize the deposit before it is processed."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #718096; font-size: 12px;")
+        layout.addWidget(note)
+
+        form_card = QGroupBox("Deposit Details")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.dep_amount = QDoubleSpinBox()
+        self.dep_amount.setRange(0.01, 9999999.99)
+        self.dep_amount.setDecimals(2)
+        self.dep_amount.setPrefix("GHS ")
+        form.addRow("Deposit Amount:", self.dep_amount)
+
+        form_card.setLayout(form)
+        layout.addWidget(form_card)
+
+        dep_btn = success_btn("  Deposit Funds  (sends OTP)", 50)
+        dep_btn.clicked.connect(self._handle_deposit)
+        layout.addWidget(dep_btn)
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_deposit(self):
+        amount = self.dep_amount.value()
+        if amount <= 0:
+            QMessageBox.warning(self, "Invalid Amount", "Amount must be greater than 0.")
+            return
+
+        otp = generate_otp()
+        sent = EmailService.send_deposit_otp(self.email, otp, amount)
+        if not sent:
+            QMessageBox.warning(self, "Email Error",
+                "Could not send OTP. Check email credentials.\n"
+                "The OTP dialog will still open — but you may not receive the code.")
+
+        dialog = OTPDialog(self.email, otp, self)
+        dialog.setWindowTitle("Deposit Authorization — Access Bank")
+        if dialog.exec_() == QDialog.Accepted and dialog.verified:
+            account_id = str(self.customer[8])
+            new_balance, err = DB.deposit(account_id, amount)
+            if err:
+                QMessageBox.critical(self, "Deposit Failed", err)
+                return
+
+            txn_id = generate_transaction_id()
+            DB.record_transaction(txn_id, "DEPOSIT", account_id, amount)
+            EmailService.send_deposit_confirmation(self.email, amount, txn_id, new_balance)
+
+            self.account = DB.get_account(self.customer[8])
+            self._refresh_balance()
+            self._refresh_transactions()
+
+            now = datetime.now()
+            QMessageBox.information(self, "Deposit Successful",
+                f"Your deposit was processed successfully!\n\n"
+                f"Amount Deposited : GHS {amount:.2f}\n"
+                f"Transaction ID   : {txn_id}\n"
+                f"Date & Time      : {now.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                f"New Balance      : GHS {new_balance:.2f}\n\n"
+                "A confirmation has been sent to your email.")
+
+            self.dep_amount.setValue(0.01)
 
     # ── Logout (mirrors Bank_Account_main.py com == 5) ────────────────────────
     def _logout(self):
