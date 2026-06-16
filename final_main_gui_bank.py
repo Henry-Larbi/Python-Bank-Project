@@ -300,6 +300,25 @@ class EmailService:
         return EmailService._send(to_email, "Access Bank — Password Reset OTP", body)
 
     @staticmethod
+    def send_deposit_authorization(to_email, otp_code, amount):
+        """Transaction authorization OTP email sent before a deposit is processed."""
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = (
+            f"Deposit Transaction Authorization — Access Bank\n\n"
+            f"A deposit request of GHS {amount:,.2f} has been initiated on your account.\n"
+            f"To authorize this transaction, use the code below:\n\n"
+            f"Authorization Code : {otp_code}\n"
+            f"Amount             : GHS {amount:,.2f}\n"
+            f"Date & Time        : {now}\n\n"
+            f"This code expires in 10 minutes and is valid for this transaction only.\n"
+            f"Never share this code with anyone — Access Bank will never ask for it.\n\n"
+            f"If you did not initiate this deposit, please contact support immediately\n"
+            f"and do not share this code. Your account balance remains unchanged\n"
+            f"until the code is verified."
+        )
+        return EmailService._send(to_email, "Access Bank — Deposit Authorization Code", body)
+
+    @staticmethod
     def send_transaction_confirmation(to_email, amount, recipient, txn_id, remaining):
         """Email confirmation after a successful transfer."""
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -497,12 +516,17 @@ class OTPDialog(QDialog):
     Mirrors the OTP flow from Bank_Account_main.py (com == 2) and
     Bank_account.py Changepassword.confirm_email().
     """
-    def __init__(self, email, otp_code, parent=None):
+    def __init__(self, email, otp_code, parent=None,
+                 title="OTP Verification — Access Bank",
+                 heading="Verify Your Identity",
+                 info_extra=""):
         super().__init__(parent)
-        self.email    = email
-        self.otp_code = otp_code
-        self.verified = False
-        self.setWindowTitle("OTP Verification — Access Bank")
+        self.email      = email
+        self.otp_code   = otp_code
+        self.verified   = False
+        self._heading   = heading
+        self._info_extra = info_extra
+        self.setWindowTitle(title)
         self.setModal(True)
         self.resize(430, 300)
         self.setStyleSheet(APP_STYLE)
@@ -513,13 +537,14 @@ class OTPDialog(QDialog):
         layout.setContentsMargins(28, 24, 28, 24)
         layout.setSpacing(14)
 
-        heading = QLabel("Verify Your Identity")
+        heading = QLabel(self._heading)
         heading.setFont(QFont("Arial", 15, QFont.Bold))
         layout.addWidget(heading)
 
+        extra = f"\n{self._info_extra}" if self._info_extra else ""
         info = QLabel(
-            f"A 6-digit One-Time Password has been sent to:\n"
-            f"{self.email}\n\n"
+            f"A 6-digit authorization code has been sent to:\n"
+            f"{self.email}{extra}\n\n"
             "Enter the code below. It expires in 10 minutes.\n"
             "If you didn't receive it, click Resend."
         )
@@ -1457,21 +1482,26 @@ class Dashboard(QMainWindow):
             QMessageBox.warning(self, "Invalid Amount", "Amount must be greater than 0.")
             return
 
-        # Generate and send OTP — same logic as password change
+        # Generate and send deposit authorization OTP
         otp = generate_otp()
-        sent = EmailService.send_otp(self.email, otp)
+        sent = EmailService.send_deposit_authorization(self.email, otp, amount)
         if not sent:
             QMessageBox.warning(self, "Email Error",
-                "Could not send OTP. Check your internet connection and try again.")
+                "Could not send authorization code. Check your internet connection and try again.")
             return
 
-        # Show OTP dialog for authorization
-        dlg = OTPDialog(self.email, otp, self)
+        # Show transaction authorization dialog
+        dlg = OTPDialog(
+            self.email, otp, self,
+            title="Deposit Authorization — Access Bank",
+            heading="Authorize Your Deposit",
+            info_extra=f"Amount: GHS {amount:,.2f}"
+        )
         dlg.exec_()
 
         if not dlg.verified:
             QMessageBox.warning(self, "Deposit Cancelled",
-                "OTP verification failed. Deposit has not been processed.")
+                "Authorization failed. Deposit has not been processed.")
             return
 
         # OTP verified — credit the account
