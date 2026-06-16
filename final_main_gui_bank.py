@@ -216,6 +216,26 @@ class DB:
         return new_balance, None
 
     @staticmethod
+    def deposit(account_id, amount):
+        """Credit an amount into the account. Returns (new_balance, error)."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(account_id),))
+        row = cur.fetchone()
+        if row is None:
+            conn.close()
+            return None, "Account not found."
+        cur.execute(
+            "UPDATE Account SET Current_amount = Current_amount + ? WHERE Account_id = ?",
+            (amount, str(account_id))
+        )
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(account_id),))
+        new_balance = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return float(new_balance), None
+
+    @staticmethod
     def record_transaction(txn_id, from_account, to_account, amount):
         """
         Persist a completed transfer.
@@ -839,6 +859,7 @@ class Dashboard(QMainWindow):
         self.pages.addWidget(self._change_pwd_page())     # 3
         self.pages.addWidget(self._customer_care_page())  # 4
         self.pages.addWidget(self._profile_page())        # 5
+        self.pages.addWidget(self._deposit_page())        # 6
 
         root.addWidget(self._sidebar())
         root.addWidget(self.pages, 1)
@@ -875,6 +896,7 @@ class Dashboard(QMainWindow):
             ("   Change Password",      3),
             ("   Customer Care",        4),
             ("   My Profile",           5),
+            ("   Deposit",              6),
         ]
         self._nav_btns = []
         for label, idx in nav_items:
@@ -968,7 +990,11 @@ class Dashboard(QMainWindow):
         sb.clicked.connect(lambda: self._nav(1))
         qa_row.addWidget(sb)
 
-        hb = success_btn("  View Transactions")
+        db = success_btn("  Deposit")
+        db.clicked.connect(lambda: self._nav(6))
+        qa_row.addWidget(db)
+
+        hb = warning_btn("  Transactions")
         hb.clicked.connect(lambda: self._nav(2))
         qa_row.addWidget(hb)
 
@@ -1378,6 +1404,101 @@ class Dashboard(QMainWindow):
         layout.addStretch()
         page.setLayout(layout)
         return page
+
+    # ── Deposit page (OTP-authorized) ─────────────────────────────────────────
+    def _deposit_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Deposit Money")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        info = QLabel(
+            "Enter the amount you wish to deposit into your account.\n"
+            "A One-Time Password (OTP) will be sent to your registered email\n"
+            "to authorize the deposit before it is processed."
+        )
+        info.setWordWrap(True)
+        info.setStyleSheet("color: #718096; font-size: 12px;")
+        layout.addWidget(info)
+
+        card = QGroupBox("Deposit Details")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.dep_amount = QDoubleSpinBox()
+        self.dep_amount.setRange(1.00, 9999999.99)
+        self.dep_amount.setDecimals(2)
+        self.dep_amount.setPrefix("GHS ")
+        self.dep_amount.setValue(100.00)
+        form.addRow("Amount to Deposit:", self.dep_amount)
+
+        card.setLayout(form)
+        layout.addWidget(card)
+
+        dep_btn = success_btn("  Deposit (sends OTP to authorize)", 50)
+        dep_btn.clicked.connect(self._handle_deposit)
+        layout.addWidget(dep_btn)
+
+        self.dep_status = QLabel("")
+        self.dep_status.setStyleSheet("color: #28a745; font-size: 13px; font-weight: bold;")
+        layout.addWidget(self.dep_status)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_deposit(self):
+        amount = self.dep_amount.value()
+        if amount <= 0:
+            QMessageBox.warning(self, "Invalid Amount", "Amount must be greater than 0.")
+            return
+
+        # Generate and send OTP — same logic as password change
+        otp = generate_otp()
+        sent = EmailService.send_otp(self.email, otp)
+        if not sent:
+            QMessageBox.warning(self, "Email Error",
+                "Could not send OTP. Check your internet connection and try again.")
+            return
+
+        # Show OTP dialog for authorization
+        dlg = OTPDialog(self.email, otp, self)
+        dlg.exec_()
+
+        if not dlg.verified:
+            QMessageBox.warning(self, "Deposit Cancelled",
+                "OTP verification failed. Deposit has not been processed.")
+            return
+
+        # OTP verified — credit the account
+        account_id = str(self.customer[8])
+        new_balance, err = DB.deposit(account_id, amount)
+        if err:
+            QMessageBox.critical(self, "Deposit Failed", err)
+            return
+
+        # Record in Transactions table
+        txn_id = generate_transaction_id()
+        DB.record_transaction(txn_id, "DEPOSIT", account_id, amount)
+
+        self.account = DB.get_account(self.customer[8])
+        self._refresh_balance()
+        self._refresh_transactions()
+
+        self.dep_status.setText(f"Deposit of GHS {amount:,.2f} successful!")
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        QMessageBox.information(self, "Deposit Successful",
+            f"Deposit Authorized & Processed!\n\n"
+            f"Amount Deposited : GHS {amount:,.2f}\n"
+            f"Transaction ID   : {txn_id}\n"
+            f"Date & Time      : {now}\n"
+            f"New Balance      : GHS {new_balance:,.2f}\n\n"
+            "Your account has been credited successfully.")
+        self.dep_amount.setValue(100.00)
 
     # ── Logout (mirrors Bank_Account_main.py com == 5) ────────────────────────
     def _logout(self):
