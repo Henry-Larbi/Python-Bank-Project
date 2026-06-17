@@ -79,6 +79,39 @@ class DB:
                 Transaction_Date TEXT,
                 Status           TEXT
             )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS Loans(
+                Loan_ID          TEXT PRIMARY KEY,
+                Account_ID       TEXT,
+                Amount           REAL,
+                Interest_Rate    REAL,
+                Months           INTEGER,
+                Monthly_Payment  REAL,
+                Start_Date       TEXT,
+                Status           TEXT DEFAULT 'Active',
+                Amount_Repaid    REAL DEFAULT 0
+            )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS FixedDeposits(
+                FD_ID          TEXT PRIMARY KEY,
+                Account_ID     TEXT,
+                Amount         REAL,
+                Interest_Rate  REAL,
+                Days           INTEGER,
+                Start_Date     TEXT,
+                Maturity_Date  TEXT,
+                Expected_Return REAL,
+                Status         TEXT DEFAULT 'Active'
+            )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS BillPayments(
+                Payment_ID    TEXT PRIMARY KEY,
+                Account_ID    TEXT,
+                Biller        TEXT,
+                Amount        REAL,
+                Payment_Date  TEXT,
+                Status        TEXT DEFAULT 'Paid'
+            )''')
         conn.commit()
         conn.close()
 
@@ -259,6 +292,119 @@ class DB:
         conn.close()
         return new_balance, None
 
+    @staticmethod
+    def get_stats(account_id):
+        """Returns (total_sent, total_received, txn_count) for the account."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE From_Account=? AND From_Account != 'DEPOSIT'", (str(account_id),))
+        total_sent = cur.fetchone()[0]
+        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE To_Account=?", (str(account_id),))
+        total_received = cur.fetchone()[0]
+        cur.execute("SELECT COUNT(*) FROM Transactions WHERE From_Account=? OR To_Account=?", (str(account_id), str(account_id)))
+        txn_count = cur.fetchone()[0]
+        conn.close()
+        return total_sent, total_received, txn_count
+
+    @staticmethod
+    def apply_loan(account_id, amount, months, interest_rate=15.0):
+        """Create a loan record. Returns (loan_id, monthly_payment, error)."""
+        loan_id = str(generate_transaction_id()) + str(random.randint(10,99))
+        monthly_rate = interest_rate / 100 / 12
+        if monthly_rate > 0:
+            monthly_payment = amount * monthly_rate / (1 - (1 + monthly_rate) ** -months)
+        else:
+            monthly_payment = amount / months
+        monthly_payment = round(monthly_payment, 2)
+        start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO Loans(Loan_ID, Account_ID, Amount, Interest_Rate, Months,
+                              Monthly_Payment, Start_Date, Status, Amount_Repaid)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        ''', (loan_id, str(account_id), amount, interest_rate, months,
+              monthly_payment, start_date, 'Active', 0.0))
+        conn.commit()
+        conn.close()
+        return loan_id, monthly_payment, None
+
+    @staticmethod
+    def get_loans(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM Loans WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def create_fixed_deposit(account_id, amount, days):
+        """Deduct amount from account and create FD. Returns (fd_id, maturity_date, expected_return, error)."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        row = cur.fetchone()
+        if row is None:
+            conn.close()
+            return None, None, None, "Account not found."
+        if float(row[0]) < amount:
+            conn.close()
+            return None, None, None, "Insufficient balance for this fixed deposit."
+        rate_map = {30: 5.0, 60: 7.0, 90: 10.0}
+        interest_rate = rate_map.get(days, 5.0)
+        expected_return = round(amount + amount * (interest_rate / 100) * (days / 365), 2)
+        fd_id = "FD" + str(generate_transaction_id())
+        start = datetime.now()
+        from datetime import timedelta
+        maturity = (start + timedelta(days=days)).strftime("%Y-%m-%d")
+        start_str = start.strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id=?",
+                    (amount, str(account_id)))
+        cur.execute('''
+            INSERT INTO FixedDeposits(FD_ID, Account_ID, Amount, Interest_Rate, Days,
+                                      Start_Date, Maturity_Date, Expected_Return, Status)
+            VALUES(?,?,?,?,?,?,?,?,?)
+        ''', (fd_id, str(account_id), amount, interest_rate, days, start_str, maturity, expected_return, 'Active'))
+        conn.commit()
+        conn.close()
+        return fd_id, maturity, expected_return, None
+
+    @staticmethod
+    def get_fixed_deposits(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM FixedDeposits WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def record_bill_payment(payment_id, account_id, biller, amount):
+        """Deduct amount and record bill payment. Returns (new_balance, error)."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        row = cur.fetchone()
+        if row is None:
+            conn.close()
+            return None, "Account not found."
+        if float(row[0]) < amount:
+            conn.close()
+            return None, "Insufficient balance."
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id=?",
+                    (amount, str(account_id)))
+        cur.execute('''
+            INSERT INTO BillPayments(Payment_ID, Account_ID, Biller, Amount, Payment_Date, Status)
+            VALUES(?,?,?,?,?,?)
+        ''', (payment_id, str(account_id), biller, amount, now, 'Paid'))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        new_balance = cur.fetchone()[0]
+        conn.commit()
+        conn.close()
+        return new_balance, None
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EMAIL SERVICE  (from Bank_account.py Changepassword + send_email)
@@ -354,6 +500,62 @@ class EmailService:
             f"If you did not initiate this transaction, contact support immediately."
         )
         EmailService._send(to_email, "Deposit Confirmation — Access Bank", body)
+
+    @staticmethod
+    def send_bill_payment_otp(to_email, otp_code, biller, amount):
+        body = (
+            f"Bill Payment Authorization — Access Bank\n\n"
+            f"A payment of GHS {amount:.2f} to {biller} has been requested.\n\n"
+            f"Authorization Code: {otp_code}\n\n"
+            f"This code expires in 10 minutes. Never share it with anyone.\n"
+            f"If you did not initiate this, contact support immediately."
+        )
+        return EmailService._send(to_email, "Access Bank — Bill Payment OTP", body)
+
+    @staticmethod
+    def send_bill_payment_confirmation(to_email, biller, amount, payment_id, new_balance):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = (
+            f"Bill Payment Confirmation — Access Bank\n\n"
+            f"Biller           : {biller}\n"
+            f"Amount Paid      : GHS {amount:.2f}\n"
+            f"Payment ID       : {payment_id}\n"
+            f"Date & Time      : {now}\n"
+            f"Remaining Balance: GHS {new_balance:.2f}\n\n"
+            f"Payment processed successfully."
+        )
+        EmailService._send(to_email, "Bill Payment Confirmation — Access Bank", body)
+
+    @staticmethod
+    def send_loan_confirmation(to_email, loan_id, amount, months, monthly_payment):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = (
+            f"Loan Application Approved — Access Bank\n\n"
+            f"Loan ID          : {loan_id}\n"
+            f"Loan Amount      : GHS {amount:.2f}\n"
+            f"Repayment Period : {months} months\n"
+            f"Monthly Payment  : GHS {monthly_payment:.2f}\n"
+            f"Interest Rate    : 15% per annum\n"
+            f"Date             : {now}\n\n"
+            f"Your loan has been approved. Monthly repayments are due on the same date each month.\n"
+            f"Please ensure your account is funded for automatic deductions."
+        )
+        EmailService._send(to_email, "Loan Approved — Access Bank", body)
+
+    @staticmethod
+    def send_fd_confirmation(to_email, fd_id, amount, days, maturity_date, expected_return):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        body = (
+            f"Fixed Deposit Confirmation — Access Bank\n\n"
+            f"FD Reference     : {fd_id}\n"
+            f"Amount Locked    : GHS {amount:.2f}\n"
+            f"Duration         : {days} days\n"
+            f"Maturity Date    : {maturity_date}\n"
+            f"Expected Return  : GHS {expected_return:.2f}\n"
+            f"Date Created     : {now}\n\n"
+            f"Your fixed deposit is now active. Funds will be available on the maturity date."
+        )
+        EmailService._send(to_email, "Fixed Deposit Confirmation — Access Bank", body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -887,6 +1089,10 @@ class Dashboard(QMainWindow):
         self.pages.addWidget(self._customer_care_page())  # 4
         self.pages.addWidget(self._profile_page())        # 5
         self.pages.addWidget(self._deposit_page())        # 6
+        self.pages.addWidget(self._analytics_page())     # 7
+        self.pages.addWidget(self._bill_payments_page()) # 8
+        self.pages.addWidget(self._loans_page())         # 9
+        self.pages.addWidget(self._fixed_deposit_page()) # 10
 
         root.addWidget(self._sidebar())
         root.addWidget(self.pages, 1)
@@ -920,6 +1126,10 @@ class Dashboard(QMainWindow):
             ("   Overview",             0),
             ("   Send Money",           1),
             ("   Deposit Money",        6),
+            ("   Analytics",            7),
+            ("   Bill Payments",        8),
+            ("   Loans",                9),
+            ("   Fixed Deposits",      10),
             ("   Transaction History",  2),
             ("   Change Password",      3),
             ("   Customer Care",        4),
@@ -959,12 +1169,21 @@ class Dashboard(QMainWindow):
 
     def _nav(self, index):
         self.pages.setCurrentIndex(index)
+        nav_indices = [0, 1, 6, 7, 8, 9, 10, 2, 3, 4, 5]
         for i, btn in enumerate(self._nav_btns):
-            btn.setChecked(i == index)
-        if index == 2:
-            self._refresh_transactions()
+            btn.setChecked(nav_indices[i] == index)
         if index == 0:
             self._refresh_balance()
+        if index == 2:
+            self._refresh_transactions()
+        if index == 7:
+            self._refresh_analytics()
+        if index == 8:
+            self._refresh_bill_table()
+        if index == 9:
+            self._refresh_loan_table()
+        if index == 10:
+            self._refresh_fd_table()
 
     # ── Overview page ──────────────────────────────────────────────────────────
     def _overview_page(self):
@@ -1020,6 +1239,14 @@ class Dashboard(QMainWindow):
         db = success_btn("  Deposit Money")
         db.clicked.connect(lambda: self._nav(6))
         qa_row.addWidget(db)
+
+        bb = _btn("  Bill Payments", "#17a2b8", "#138496")
+        bb.clicked.connect(lambda: self._nav(8))
+        qa_row.addWidget(bb)
+
+        lb = _btn("  Loans", "#fd7e14", "#e8610a")
+        lb.clicked.connect(lambda: self._nav(9))
+        qa_row.addWidget(lb)
 
         hb = warning_btn("  View Transactions")
         hb.clicked.connect(lambda: self._nav(2))
