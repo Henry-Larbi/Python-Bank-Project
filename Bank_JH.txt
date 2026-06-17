@@ -17,3 +17,13 @@ someone@gmail.com
 e05w£lASX_
 893261574215634
 ---
+Demo User
+25
+Male
+Single
+Accra
+050-123-4567
+demo@test.com
+Demo@1234
+316758249576823
+---
