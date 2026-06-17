@@ -1204,15 +1204,16 @@ class AuthWindow(QWidget):
         if not email or not password:
             QMessageBox.warning(self, "Missing Fields", "Please enter your email and password.")
             return
-        if not re.match(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}", email):
-            QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
-            return
 
-        # Admin shortcut
+        # Admin check first — before any email format validation
         if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
             self.login_email.clear()
             self.login_password.clear()
             self.admin_login.emit()
+            return
+
+        if not re.match(r"[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,4}", email):
+            QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
             return
 
         # Mirrors Bank_bulid_1.check()
