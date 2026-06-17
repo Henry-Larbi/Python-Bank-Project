@@ -1740,6 +1740,471 @@ class Dashboard(QMainWindow):
 
             self.dep_amount.setValue(0.01)
 
+    # ── Analytics page (page 7) ───────────────────────────────────────────────
+    def _analytics_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(22)
+
+        hdr = QHBoxLayout()
+        title = QLabel("Analytics")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        hdr.addWidget(title)
+        hdr.addStretch()
+        ref_btn = QPushButton("Refresh")
+        ref_btn.setStyleSheet(
+            "background:#e2e8f0; border-radius:6px; padding:8px 18px; color:#2d3748;"
+        )
+        ref_btn.clicked.connect(self._refresh_analytics)
+        hdr.addWidget(ref_btn)
+        layout.addLayout(hdr)
+
+        # Stat cards row
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(16)
+
+        def stat_card(title_text, subtitle_text):
+            card = QGroupBox()
+            card_layout = QVBoxLayout()
+            card_layout.setSpacing(4)
+            val_lbl = QLabel("—")
+            val_lbl.setFont(QFont("Arial", 22, QFont.Bold))
+            val_lbl.setStyleSheet("color: #007bff;")
+            val_lbl.setAlignment(Qt.AlignCenter)
+            sub_lbl = QLabel(subtitle_text)
+            sub_lbl.setStyleSheet("color: #718096; font-size: 12px;")
+            sub_lbl.setAlignment(Qt.AlignCenter)
+            card_layout.addWidget(val_lbl)
+            card_layout.addWidget(sub_lbl)
+            card.setLayout(card_layout)
+            return card, val_lbl
+
+        sent_card,    self.an_sent     = stat_card("Total Sent",        "Total Sent")
+        recv_card,    self.an_received = stat_card("Total Received",    "Total Received")
+        count_card,   self.an_count    = stat_card("Transactions",      "Total Transactions")
+        bal_card_an,  self.an_balance  = stat_card("Current Balance",   "Current Balance")
+
+        for card in [sent_card, recv_card, count_card, bal_card_an]:
+            cards_row.addWidget(card)
+        layout.addLayout(cards_row)
+
+        # Recent activity table
+        recent_grp = QGroupBox("Recent Activity (Last 5 Transactions)")
+        recent_layout = QVBoxLayout()
+        self.an_table = QTableWidget()
+        self.an_table.setColumnCount(4)
+        self.an_table.setHorizontalHeaderLabels(["ID", "Type", "Amount", "Date"])
+        self.an_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.an_table.setAlternatingRowColors(True)
+        self.an_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.an_table.verticalHeader().setVisible(False)
+        recent_layout.addWidget(self.an_table)
+        recent_grp.setLayout(recent_layout)
+        layout.addWidget(recent_grp)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _refresh_analytics(self):
+        if not hasattr(self, 'an_sent') or not self.customer:
+            return
+        account_id = str(self.customer[8])
+        total_sent, total_received, txn_count = DB.get_stats(account_id)
+        acc = DB.get_account(self.customer[8])
+        balance = acc[2] if acc and acc[2] is not None else 0.0
+        self.an_sent.setText(f"GHS {total_sent:,.2f}")
+        self.an_received.setText(f"GHS {total_received:,.2f}")
+        self.an_count.setText(str(txn_count))
+        self.an_balance.setText(f"GHS {balance:,.2f}")
+
+        rows = DB.get_transactions(account_id)[:5]
+        self.an_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            txn_id  = str(row[0])
+            from_ac = str(row[1])
+            to_ac   = str(row[2])
+            amount  = float(row[3])
+            date    = str(row[4])
+            if from_ac == account_id:
+                txn_type = f"Sent → {to_ac}"
+            else:
+                txn_type = f"Received ← {from_ac}"
+            vals = [txn_id, txn_type, f"GHS {amount:,.2f}", date]
+            for c, val in enumerate(vals):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.an_table.setItem(r, c, item)
+
+    # ── Bill Payments page (page 8) ───────────────────────────────────────────
+    def _bill_payments_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Bill Payments")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        form_card = QGroupBox("Pay a Bill")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.bill_biller = QComboBox()
+        self.bill_biller.addItems([
+            "ECG (Electricity)",
+            "GWCL (Water)",
+            "MTN Mobile Money",
+            "Vodafone Cash",
+            "AirtelTigo Money",
+            "DStv Subscription",
+            "StarTimes Subscription",
+            "GoTV Subscription",
+        ])
+        form.addRow("Biller:", self.bill_biller)
+
+        self.bill_amount = QDoubleSpinBox()
+        self.bill_amount.setRange(1.0, 5000.0)
+        self.bill_amount.setDecimals(2)
+        self.bill_amount.setPrefix("GHS ")
+        form.addRow("Amount:", self.bill_amount)
+
+        form_card.setLayout(form)
+        layout.addWidget(form_card)
+
+        pay_btn = success_btn("  Pay Bill (sends OTP)", 50)
+        pay_btn.clicked.connect(self._handle_bill_payment)
+        layout.addWidget(pay_btn)
+
+        history_grp = QGroupBox("Payment History")
+        history_layout = QVBoxLayout()
+        self.bill_table = QTableWidget()
+        self.bill_table.setColumnCount(4)
+        self.bill_table.setHorizontalHeaderLabels(["Payment ID", "Biller", "Amount", "Date"])
+        self.bill_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.bill_table.setAlternatingRowColors(True)
+        self.bill_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.bill_table.verticalHeader().setVisible(False)
+        history_layout.addWidget(self.bill_table)
+        history_grp.setLayout(history_layout)
+        layout.addWidget(history_grp)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_bill_payment(self):
+        biller = self.bill_biller.currentText()
+        amount = self.bill_amount.value()
+        account_id = str(self.customer[8])
+
+        otp = generate_otp()
+        sent = EmailService.send_bill_payment_otp(self.email, otp, biller, amount)
+        if not sent:
+            QMessageBox.warning(self, "Email Error",
+                "Could not send OTP. Check email credentials.\n"
+                "The OTP dialog will still open — but you may not receive the code.")
+
+        dialog = OTPDialog(self.email, otp, self)
+        dialog.setWindowTitle("Bill Payment Authorization — Access Bank")
+        if dialog.exec_() == QDialog.Accepted and dialog.verified:
+            payment_id = str(generate_transaction_id())
+            new_balance, err = DB.record_bill_payment(payment_id, account_id, biller, amount)
+            if err:
+                QMessageBox.critical(self, "Payment Failed", err)
+                return
+
+            txn_id = generate_transaction_id()
+            DB.record_transaction(txn_id, account_id, f"BILLS-{biller[:3].upper()}", amount)
+            EmailService.send_bill_payment_confirmation(self.email, biller, amount, payment_id, new_balance)
+
+            self.account = DB.get_account(self.customer[8])
+            self._refresh_balance()
+            self._refresh_bill_table()
+
+            QMessageBox.information(self, "Payment Successful",
+                f"Bill payment processed successfully!\n\n"
+                f"Biller          : {biller}\n"
+                f"Amount Paid     : GHS {amount:.2f}\n"
+                f"Payment ID      : {payment_id}\n"
+                f"Remaining Balance: GHS {new_balance:.2f}\n\n"
+                "A confirmation has been sent to your email.")
+
+            self.bill_amount.setValue(1.0)
+
+    def _refresh_bill_table(self):
+        if not hasattr(self, 'bill_table') or not self.customer:
+            return
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM BillPayments WHERE Account_ID=? ORDER BY Payment_Date DESC",
+            (str(self.customer[8]),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        self.bill_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            payment_id = str(row[0])
+            biller     = str(row[2])
+            amount     = f"GHS {float(row[3]):,.2f}"
+            date       = str(row[4])
+            for c, val in enumerate([payment_id, biller, amount, date]):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.bill_table.setItem(r, c, item)
+
+    # ── Loans page (page 9) ───────────────────────────────────────────────────
+    def _loans_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Loan Management")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        form_card = QGroupBox("Apply for a Loan")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.loan_amount = QDoubleSpinBox()
+        self.loan_amount.setRange(100.0, 50000.0)
+        self.loan_amount.setDecimals(2)
+        self.loan_amount.setPrefix("GHS ")
+        form.addRow("Loan Amount:", self.loan_amount)
+
+        self.loan_months = QComboBox()
+        self.loan_months.addItems(["6 months", "12 months", "24 months", "36 months"])
+        form.addRow("Repayment Period:", self.loan_months)
+
+        rate_lbl = QLabel("Interest Rate: 15% per annum")
+        rate_lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        form.addRow("", rate_lbl)
+
+        form_card.setLayout(form)
+        layout.addWidget(form_card)
+
+        apply_btn = primary_btn("  Apply for Loan", 50)
+        apply_btn.clicked.connect(self._handle_loan)
+        layout.addWidget(apply_btn)
+
+        history_grp = QGroupBox("My Loans")
+        history_layout = QVBoxLayout()
+        self.loan_table = QTableWidget()
+        self.loan_table.setColumnCount(6)
+        self.loan_table.setHorizontalHeaderLabels(
+            ["Loan ID", "Amount", "Months", "Monthly Payment", "Start Date", "Status"]
+        )
+        self.loan_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.loan_table.setAlternatingRowColors(True)
+        self.loan_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.loan_table.verticalHeader().setVisible(False)
+        history_layout.addWidget(self.loan_table)
+        history_grp.setLayout(history_layout)
+        layout.addWidget(history_grp)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_loan(self):
+        amount = self.loan_amount.value()
+        months_text = self.loan_months.currentText()
+        months = int(months_text.split()[0])
+        account_id = str(self.customer[8])
+
+        # Calculate preview monthly payment
+        monthly_rate = 15.0 / 100 / 12
+        monthly_payment_preview = round(
+            amount * monthly_rate / (1 - (1 + monthly_rate) ** -months), 2
+        )
+
+        reply = QMessageBox.question(
+            self, "Confirm Loan Application",
+            f"Apply for GHS {amount:.2f} over {months} months at 15% p.a.?\n"
+            f"Monthly Payment: GHS {monthly_payment_preview:.2f}\n\n"
+            "Proceed with this loan application?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        loan_id, monthly_payment, err = DB.apply_loan(account_id, amount, months)
+        if err:
+            QMessageBox.critical(self, "Loan Failed", err)
+            return
+
+        new_balance, dep_err = DB.deposit(account_id, amount)
+        if dep_err:
+            QMessageBox.critical(self, "Credit Failed", dep_err)
+            return
+
+        txn_id = generate_transaction_id()
+        DB.record_transaction(txn_id, "LOAN-CREDIT", account_id, amount)
+        EmailService.send_loan_confirmation(self.email, loan_id, amount, months, monthly_payment)
+
+        self.account = DB.get_account(self.customer[8])
+        self._refresh_balance()
+        self._refresh_loan_table()
+
+        QMessageBox.information(self, "Loan Approved",
+            f"Your loan has been approved!\n\n"
+            f"Loan ID         : {loan_id}\n"
+            f"Amount          : GHS {amount:.2f}\n"
+            f"Repayment       : {months} months\n"
+            f"Monthly Payment : GHS {monthly_payment:.2f}\n\n"
+            "Funds have been credited to your account.\n"
+            "A confirmation has been sent to your email.")
+
+        self.loan_amount.setValue(100.0)
+
+    def _refresh_loan_table(self):
+        if not hasattr(self, 'loan_table') or not self.customer:
+            return
+        rows = DB.get_loans(str(self.customer[8]))
+        self.loan_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            loan_id    = str(row[0])
+            amount     = f"GHS {float(row[2]):,.2f}"
+            months     = str(row[4])
+            monthly    = f"GHS {float(row[5]):,.2f}"
+            start_date = str(row[6])
+            status     = str(row[7])
+            for c, val in enumerate([loan_id, amount, months, monthly, start_date, status]):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.loan_table.setItem(r, c, item)
+
+    # ── Fixed Deposits page (page 10) ─────────────────────────────────────────
+    def _fixed_deposit_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Fixed Deposits")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        form_card = QGroupBox("Create a Fixed Deposit")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.fd_amount = QDoubleSpinBox()
+        self.fd_amount.setRange(100.0, 500000.0)
+        self.fd_amount.setDecimals(2)
+        self.fd_amount.setPrefix("GHS ")
+        form.addRow("Amount:", self.fd_amount)
+
+        self.fd_days = QComboBox()
+        self.fd_days.addItems([
+            "30 days — 5% p.a.",
+            "60 days — 7% p.a.",
+            "90 days — 10% p.a.",
+        ])
+        form.addRow("Duration:", self.fd_days)
+
+        info_lbl = QLabel("Funds are locked for the selected period. Early withdrawal is not available.")
+        info_lbl.setStyleSheet("color: #718096; font-size: 12px;")
+        info_lbl.setWordWrap(True)
+        form.addRow("", info_lbl)
+
+        form_card.setLayout(form)
+        layout.addWidget(form_card)
+
+        create_btn = warning_btn("  Create Fixed Deposit", 50)
+        create_btn.clicked.connect(self._handle_fd)
+        layout.addWidget(create_btn)
+
+        history_grp = QGroupBox("My Fixed Deposits")
+        history_layout = QVBoxLayout()
+        self.fd_table = QTableWidget()
+        self.fd_table.setColumnCount(6)
+        self.fd_table.setHorizontalHeaderLabels(
+            ["FD ID", "Amount", "Days", "Rate", "Maturity Date", "Expected Return"]
+        )
+        self.fd_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.fd_table.setAlternatingRowColors(True)
+        self.fd_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.fd_table.verticalHeader().setVisible(False)
+        history_layout.addWidget(self.fd_table)
+        history_grp.setLayout(history_layout)
+        layout.addWidget(history_grp)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_fd(self):
+        amount = self.fd_amount.value()
+        days_text = self.fd_days.currentText()
+        days = int(days_text[:2].strip())
+        account_id = str(self.customer[8])
+
+        rate_map = {30: 5.0, 60: 7.0, 90: 10.0}
+        interest_rate = rate_map.get(days, 5.0)
+        expected_return_preview = round(amount + amount * (interest_rate / 100) * (days / 365), 2)
+        from datetime import timedelta
+        maturity_preview = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+        reply = QMessageBox.question(
+            self, "Confirm Fixed Deposit",
+            f"Amount          : GHS {amount:.2f}\n"
+            f"Duration        : {days} days\n"
+            f"Interest Rate   : {interest_rate}% p.a.\n"
+            f"Maturity Date   : {maturity_preview}\n"
+            f"Expected Return : GHS {expected_return_preview:.2f}\n\n"
+            "Funds will be locked until maturity. Proceed?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        fd_id, maturity_date, expected_return, err = DB.create_fixed_deposit(account_id, amount, days)
+        if err:
+            QMessageBox.critical(self, "Fixed Deposit Failed", err)
+            return
+
+        txn_id = generate_transaction_id()
+        DB.record_transaction(txn_id, account_id, "FD-LOCK", amount)
+        EmailService.send_fd_confirmation(self.email, fd_id, amount, days, maturity_date, expected_return)
+
+        self.account = DB.get_account(self.customer[8])
+        self._refresh_balance()
+        self._refresh_fd_table()
+
+        QMessageBox.information(self, "Fixed Deposit Created",
+            f"Your fixed deposit has been created!\n\n"
+            f"FD Reference    : {fd_id}\n"
+            f"Amount Locked   : GHS {amount:.2f}\n"
+            f"Duration        : {days} days\n"
+            f"Maturity Date   : {maturity_date}\n"
+            f"Expected Return : GHS {expected_return:.2f}\n\n"
+            "A confirmation has been sent to your email.")
+
+        self.fd_amount.setValue(100.0)
+
+    def _refresh_fd_table(self):
+        if not hasattr(self, 'fd_table') or not self.customer:
+            return
+        rows = DB.get_fixed_deposits(str(self.customer[8]))
+        self.fd_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            fd_id    = str(row[0])
+            amount   = f"GHS {float(row[2]):,.2f}"
+            days     = str(row[4])
+            rate     = f"{float(row[3])}%"
+            maturity = str(row[6])
+            exp_ret  = f"GHS {float(row[7]):,.2f}"
+            for c, val in enumerate([fd_id, amount, days, rate, maturity, exp_ret]):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.fd_table.setItem(r, c, item)
+
     # ── Logout (mirrors Bank_Account_main.py com == 5) ────────────────────────
     def _logout(self):
         self.close()
