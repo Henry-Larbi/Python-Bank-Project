@@ -11,12 +11,13 @@ Single self-contained file.
 import sys
 import os
 import re
+import csv
 import time
 import random
 import string
 import sqlite3
 import smtplib
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.message import EmailMessage
 
 from PyQt5.QtWidgets import (
@@ -39,6 +40,8 @@ except ImportError:
 BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
 BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
 DB_FILE = "Bank_JH.db"
+ADMIN_EMAIL    = "admin@accessbank.com"
+ADMIN_PASSWORD = "Admin@AccessBank1!"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -111,6 +114,32 @@ class DB:
                 Amount        REAL,
                 Payment_Date  TEXT,
                 Status        TEXT DEFAULT 'Paid'
+            )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS RecurringPayments(
+                Schedule_ID   TEXT PRIMARY KEY,
+                Account_ID    TEXT,
+                Recipient_ID  TEXT,
+                Amount        REAL,
+                Frequency     TEXT,
+                Next_Run_Date TEXT,
+                Status        TEXT DEFAULT 'Active',
+                Description   TEXT
+            )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS Notifications(
+                Notif_ID     TEXT PRIMARY KEY,
+                Account_ID   TEXT,
+                Message      TEXT,
+                Type         TEXT,
+                Created_Date TEXT,
+                Is_Read      INTEGER DEFAULT 0
+            )''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS FrozenAccounts(
+                Account_ID  TEXT PRIMARY KEY,
+                Frozen_Date TEXT,
+                Reason      TEXT
             )''')
         conn.commit()
         conn.close()
@@ -405,6 +434,205 @@ class DB:
         conn.close()
         return new_balance, None
 
+    @staticmethod
+    def check_fraud(account_id, amount):
+        """Returns list of fraud flags for a proposed transfer."""
+        flags = []
+        if amount > 5000:
+            flags.append(f"Large transfer: GHS {amount:.2f} (threshold GHS 5,000)")
+        five_mins_ago = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM Transactions WHERE From_Account=? AND Transaction_Date > ?",
+            (str(account_id), five_mins_ago)
+        )
+        recent_count = cur.fetchone()[0]
+        conn.close()
+        if recent_count >= 3:
+            flags.append(f"Rapid activity: {recent_count} transfers in the last 5 minutes")
+        return flags
+
+    @staticmethod
+    def create_recurring(account_id, recipient_id, amount, frequency, description):
+        """Create a standing order. Returns schedule_id."""
+        schedule_id = "REC" + str(generate_transaction_id())
+        days = 7 if frequency == "Weekly" else 30
+        next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO RecurringPayments(Schedule_ID, Account_ID, Recipient_ID,
+                                          Amount, Frequency, Next_Run_Date, Status, Description)
+            VALUES(?,?,?,?,?,?,?,?)
+        ''', (schedule_id, str(account_id), str(recipient_id), amount,
+              frequency, next_run, 'Active', description))
+        conn.commit()
+        conn.close()
+        return schedule_id
+
+    @staticmethod
+    def get_recurring(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM RecurringPayments WHERE Account_ID=? ORDER BY Next_Run_Date ASC",
+            (str(account_id),)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def cancel_recurring(schedule_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("UPDATE RecurringPayments SET Status='Cancelled' WHERE Schedule_ID=?",
+                    (schedule_id,))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def process_due_recurring():
+        """Execute all active recurring payments due today or earlier."""
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM RecurringPayments WHERE Status='Active' AND Next_Run_Date <= ?",
+            (today,)
+        )
+        due = cur.fetchall()
+        conn.close()
+        executed = []
+        for rec in due:
+            schedule_id, account_id, recipient_id, amount, frequency, _, status, description = rec
+            new_balance, err = DB.transfer(account_id, recipient_id, amount)
+            if not err:
+                txn_id = generate_transaction_id()
+                DB.record_transaction(txn_id, account_id, recipient_id, amount)
+                days = 7 if frequency == "Weekly" else 30
+                next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+                conn2 = sqlite3.connect(DB_FILE)
+                cur2 = conn2.cursor()
+                cur2.execute("UPDATE RecurringPayments SET Next_Run_Date=? WHERE Schedule_ID=?",
+                             (next_run, schedule_id))
+                conn2.commit()
+                conn2.close()
+                executed.append((account_id, recipient_id, amount, description))
+        return executed
+
+    @staticmethod
+    def add_notification(account_id, message, notif_type="info"):
+        notif_id = "N" + str(generate_transaction_id())
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('''
+            INSERT INTO Notifications(Notif_ID, Account_ID, Message, Type, Created_Date, Is_Read)
+            VALUES(?,?,?,?,?,?)
+        ''', (notif_id, str(account_id), message, notif_type, now, 0))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def get_notifications(account_id, limit=20):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT * FROM Notifications WHERE Account_ID=? ORDER BY Created_Date DESC LIMIT ?",
+            (str(account_id), limit)
+        )
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def mark_all_read(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("UPDATE Notifications SET Is_Read=1 WHERE Account_ID=?", (str(account_id),))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def get_unread_count(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "SELECT COUNT(*) FROM Notifications WHERE Account_ID=? AND Is_Read=0",
+            (str(account_id),)
+        )
+        count = cur.fetchone()[0]
+        conn.close()
+        return count
+
+    @staticmethod
+    def get_all_accounts():
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute('''
+            SELECT cs.Customer_Name, cs.Customer_Email, a.Account_id, a.Current_amount,
+                   CASE WHEN fa.Account_ID IS NOT NULL THEN 'Frozen' ELSE 'Active' END
+            FROM Customer_services cs
+            JOIN Account a ON cs.Customer_ID = a.Customer_ID
+            LEFT JOIN FrozenAccounts fa ON a.Account_id = fa.Account_ID
+            ORDER BY cs.Customer_Name
+        ''')
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def get_all_transactions():
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT * FROM Transactions ORDER BY Transaction_Date DESC")
+        rows = cur.fetchall()
+        conn.close()
+        return rows
+
+    @staticmethod
+    def freeze_account(account_id, reason="Admin action"):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute(
+            "INSERT OR REPLACE INTO FrozenAccounts(Account_ID, Frozen_Date, Reason) VALUES(?,?,?)",
+            (str(account_id), now, reason)
+        )
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def unfreeze_account(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("DELETE FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
+        conn.commit()
+        conn.close()
+
+    @staticmethod
+    def is_frozen(account_id):
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT 1 FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
+        result = cur.fetchone()
+        conn.close()
+        return result is not None
+
+    @staticmethod
+    def get_bank_totals():
+        """Returns (total_accounts, total_balance, total_transactions) across all accounts."""
+        conn = sqlite3.connect(DB_FILE)
+        cur = conn.cursor()
+        cur.execute("SELECT COUNT(*), COALESCE(SUM(Current_amount),0) FROM Account")
+        accounts, total_bal = cur.fetchone()
+        cur.execute("SELECT COUNT(*) FROM Transactions")
+        total_txn = cur.fetchone()[0]
+        conn.close()
+        return accounts, total_bal, total_txn
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  EMAIL SERVICE  (from Bank_account.py Changepassword + send_email)
@@ -556,6 +784,36 @@ class EmailService:
             f"Your fixed deposit is now active. Funds will be available on the maturity date."
         )
         EmailService._send(to_email, "Fixed Deposit Confirmation — Access Bank", body)
+
+    @staticmethod
+    def send_fraud_alert(to_email, account_id, amount, flags):
+        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        flag_text = "\n".join(f"  - {f}" for f in flags)
+        body = (
+            f"SECURITY ALERT — Access Bank\n\n"
+            f"Suspicious activity was detected on your account.\n\n"
+            f"Account     : {account_id}\n"
+            f"Amount      : GHS {amount:.2f}\n"
+            f"Date & Time : {now}\n\n"
+            f"Flags Detected:\n{flag_text}\n\n"
+            f"If you did NOT authorize this transaction, contact support immediately.\n"
+            f"If you authorized it, no further action is required."
+        )
+        EmailService._send(to_email, "SECURITY ALERT — Access Bank", body)
+
+    @staticmethod
+    def send_recurring_confirmation(to_email, schedule_id, recipient, amount, frequency, next_run):
+        body = (
+            f"Standing Order Created — Access Bank\n\n"
+            f"Schedule ID  : {schedule_id}\n"
+            f"Recipient    : {recipient}\n"
+            f"Amount       : GHS {amount:.2f}\n"
+            f"Frequency    : {frequency}\n"
+            f"First Run    : {next_run}\n\n"
+            f"Your standing order is now active.\n"
+            f"To cancel it, visit the Recurring Payments section in your dashboard."
+        )
+        EmailService._send(to_email, "Standing Order Confirmed — Access Bank", body)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -803,6 +1061,7 @@ class AuthWindow(QWidget):
     Carries all validations from Bank_interface.py and Bank_bulid_1.py.
     """
     login_success = pyqtSignal(str)   # emits the logged-in email
+    admin_login   = pyqtSignal()      # emits when admin credentials used
 
     def __init__(self):
         super().__init__()
@@ -949,6 +1208,13 @@ class AuthWindow(QWidget):
             QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
             return
 
+        # Admin shortcut
+        if email == ADMIN_EMAIL and password == ADMIN_PASSWORD:
+            self.login_email.clear()
+            self.login_password.clear()
+            self.admin_login.emit()
+            return
+
         # Mirrors Bank_bulid_1.check()
         if DB.login(email, password):
             self.login_email.clear()
@@ -1070,10 +1336,14 @@ class Dashboard(QMainWindow):
         self.customer = DB.get_customer(email)
         self.account  = DB.get_account(self.customer[8]) if self.customer else None
         self.setWindowTitle(f"Access Bank — {self.customer[0] if self.customer else email}")
-        self.setGeometry(80, 50, 1120, 730)
+        self.setGeometry(80, 50, 1200, 760)
         self.setStyleSheet(APP_STYLE)
         self._build()
         self._refresh_transactions()
+        # Check recurring payments every 60 seconds
+        self._rec_timer = QTimer(self)
+        self._rec_timer.timeout.connect(self._process_recurring)
+        self._rec_timer.start(60000)
 
     def _build(self):
         central = QWidget()
@@ -1093,6 +1363,8 @@ class Dashboard(QMainWindow):
         self.pages.addWidget(self._bill_payments_page()) # 8
         self.pages.addWidget(self._loans_page())         # 9
         self.pages.addWidget(self._fixed_deposit_page()) # 10
+        self.pages.addWidget(self._recurring_page())     # 11
+        self.pages.addWidget(self._notifications_page()) # 12
 
         root.addWidget(self._sidebar())
         root.addWidget(self.pages, 1)
@@ -1130,19 +1402,25 @@ class Dashboard(QMainWindow):
             ("   Bill Payments",        8),
             ("   Loans",                9),
             ("   Fixed Deposits",      10),
+            ("   Recurring Payments",  11),
+            ("   Notifications",       12),
             ("   Transaction History",  2),
             ("   Change Password",      3),
             ("   Customer Care",        4),
             ("   My Profile",           5),
         ]
         self._nav_btns = []
+        self._notif_btn = None
         for label, idx in nav_items:
             btn = QPushButton(label)
             btn.setCheckable(True)
-            btn.setMinimumHeight(46)
+            btn.setMinimumHeight(40)
             btn.clicked.connect(lambda _, i=idx: self._nav(i))
             self._nav_btns.append(btn)
             layout.addWidget(btn)
+            if idx == 12:
+                self._notif_btn = btn
+        self._update_notif_badge()
 
         layout.addStretch()
 
@@ -1169,7 +1447,7 @@ class Dashboard(QMainWindow):
 
     def _nav(self, index):
         self.pages.setCurrentIndex(index)
-        nav_indices = [0, 1, 6, 7, 8, 9, 10, 2, 3, 4, 5]
+        nav_indices = [0, 1, 6, 7, 8, 9, 10, 11, 12, 2, 3, 4, 5]
         for i, btn in enumerate(self._nav_btns):
             btn.setChecked(nav_indices[i] == index)
         if index == 0:
@@ -1184,6 +1462,10 @@ class Dashboard(QMainWindow):
             self._refresh_loan_table()
         if index == 10:
             self._refresh_fd_table()
+        if index == 11:
+            self._refresh_recurring_table()
+        if index == 12:
+            self._refresh_notifications()
 
     # ── Overview page ──────────────────────────────────────────────────────────
     def _overview_page(self):
@@ -1336,6 +1618,30 @@ class Dashboard(QMainWindow):
             QMessageBox.warning(self, "Invalid", "You cannot transfer to your own account.")
             return
 
+        # Check if account is frozen
+        if DB.is_frozen(sender_id):
+            QMessageBox.critical(self, "Account Frozen",
+                "Your account has been frozen. Please contact support.")
+            return
+
+        # Fraud detection
+        flags = DB.check_fraud(sender_id, amount)
+        if flags:
+            flag_msg = "\n".join(f"  • {f}" for f in flags)
+            EmailService.send_fraud_alert(self.email, sender_id, amount, flags)
+            reply = QMessageBox.warning(self, "Suspicious Activity Detected",
+                f"The following concerns were flagged on this transfer:\n\n{flag_msg}\n\n"
+                "A security alert has been sent to your registered email.\n\n"
+                "Do you still want to proceed?",
+                QMessageBox.Yes | QMessageBox.No
+            )
+            if reply == QMessageBox.No:
+                return
+            DB.add_notification(sender_id,
+                f"Fraud alert: suspicious transfer of GHS {amount:.2f} was flagged but allowed.",
+                "warning")
+            self._update_notif_badge()
+
         # mirrors Transaction.check() + Transaction.send()
         new_balance, err = DB.transfer(sender_id, recipient, amount)
         if err:
@@ -1348,6 +1654,11 @@ class Dashboard(QMainWindow):
 
         # email confirmation
         EmailService.send_transaction_confirmation(self.email, amount, recipient, txn_id, new_balance)
+
+        DB.add_notification(sender_id,
+            f"Transfer of GHS {amount:.2f} sent to account {recipient}. New balance: GHS {new_balance:.2f}",
+            "info")
+        self._update_notif_badge()
 
         self.account = DB.get_account(self.customer[8])
         self._refresh_balance()
@@ -1381,6 +1692,12 @@ class Dashboard(QMainWindow):
         title.setFont(QFont("Arial", 20, QFont.Bold))
         hdr.addWidget(title)
         hdr.addStretch()
+        export_btn = QPushButton("Export CSV")
+        export_btn.setStyleSheet(
+            "background:#28a745; color:white; border-radius:6px; padding:8px 18px; font-weight:bold;"
+        )
+        export_btn.clicked.connect(self._export_statement)
+        hdr.addWidget(export_btn)
         ref = QPushButton("Refresh")
         ref.setStyleSheet(
             "background:#e2e8f0; border-radius:6px; padding:8px 18px; color:#2d3748;"
@@ -1419,6 +1736,22 @@ class Dashboard(QMainWindow):
                 if c == 5 and str(val) == "Completed":
                     item.setForeground(QColor("#276749"))
                 self.txn_table.setItem(r, c, item)
+
+    def _export_statement(self):
+        if not self.customer:
+            return
+        rows = DB.get_transactions(str(self.customer[8]))
+        filename = f"statement_{self.customer[8]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        with open(filename, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Transaction ID", "From Account", "To Account",
+                             "Amount (GHS)", "Date & Time", "Status"])
+            for row in rows:
+                writer.writerow([row[0], row[1], row[2],
+                                 f"{float(row[3]):.2f}", row[4], row[5]])
+        QMessageBox.information(self, "Export Successful",
+            f"Account statement exported to:\n{filename}\n\n"
+            f"{len(rows)} transaction(s) included.")
 
     # ── Change password page (mirrors Bank_Account_main.py com == 2) ──────────
     def _change_pwd_page(self):
@@ -1724,6 +2057,9 @@ class Dashboard(QMainWindow):
             txn_id = generate_transaction_id()
             DB.record_transaction(txn_id, "DEPOSIT", account_id, amount)
             EmailService.send_deposit_confirmation(self.email, amount, txn_id, new_balance)
+            DB.add_notification(account_id,
+                f"Deposit of GHS {amount:.2f} successful. New balance: GHS {new_balance:.2f}", "info")
+            self._update_notif_badge()
 
             self.account = DB.get_account(self.customer[8])
             self._refresh_balance()
@@ -1919,6 +2255,9 @@ class Dashboard(QMainWindow):
             txn_id = generate_transaction_id()
             DB.record_transaction(txn_id, account_id, f"BILLS-{biller[:3].upper()}", amount)
             EmailService.send_bill_payment_confirmation(self.email, biller, amount, payment_id, new_balance)
+            DB.add_notification(account_id,
+                f"Bill payment of GHS {amount:.2f} to {biller} completed.", "info")
+            self._update_notif_badge()
 
             self.account = DB.get_account(self.customer[8])
             self._refresh_balance()
@@ -2046,6 +2385,10 @@ class Dashboard(QMainWindow):
         txn_id = generate_transaction_id()
         DB.record_transaction(txn_id, "LOAN-CREDIT", account_id, amount)
         EmailService.send_loan_confirmation(self.email, loan_id, amount, months, monthly_payment)
+        DB.add_notification(account_id,
+            f"Loan of GHS {amount:.2f} approved over {months} months. Monthly: GHS {monthly_payment:.2f}",
+            "info")
+        self._update_notif_badge()
 
         self.account = DB.get_account(self.customer[8])
         self._refresh_balance()
@@ -2172,6 +2515,10 @@ class Dashboard(QMainWindow):
         txn_id = generate_transaction_id()
         DB.record_transaction(txn_id, account_id, "FD-LOCK", amount)
         EmailService.send_fd_confirmation(self.email, fd_id, amount, days, maturity_date, expected_return)
+        DB.add_notification(account_id,
+            f"Fixed deposit of GHS {amount:.2f} created. Matures {maturity_date}. Return: GHS {expected_return:.2f}",
+            "info")
+        self._update_notif_badge()
 
         self.account = DB.get_account(self.customer[8])
         self._refresh_balance()
@@ -2205,7 +2552,528 @@ class Dashboard(QMainWindow):
                 item.setTextAlignment(Qt.AlignCenter)
                 self.fd_table.setItem(r, c, item)
 
+    # ── Recurring Payments page (page 11) ────────────────────────────────────
+    def _recurring_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(20)
+
+        title = QLabel("Recurring Payments")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        layout.addWidget(title)
+
+        note = QLabel(
+            "Set up automatic standing orders to transfer money to another account\n"
+            "on a weekly or monthly schedule."
+        )
+        note.setWordWrap(True)
+        note.setStyleSheet("color: #718096; font-size: 12px;")
+        layout.addWidget(note)
+
+        form_card = QGroupBox("New Standing Order")
+        form = QFormLayout()
+        form.setSpacing(14)
+
+        self.rec_recipient = QLineEdit()
+        self.rec_recipient.setPlaceholderText("15-digit account number")
+        form.addRow("Recipient Account:", self.rec_recipient)
+
+        self.rec_amount = QDoubleSpinBox()
+        self.rec_amount.setRange(1.0, 50000.0)
+        self.rec_amount.setDecimals(2)
+        self.rec_amount.setPrefix("GHS ")
+        form.addRow("Amount:", self.rec_amount)
+
+        self.rec_frequency = QComboBox()
+        self.rec_frequency.addItems(["Weekly", "Monthly"])
+        form.addRow("Frequency:", self.rec_frequency)
+
+        self.rec_desc = QLineEdit()
+        self.rec_desc.setPlaceholderText("e.g. Rent, Savings, Family support")
+        form.addRow("Description:", self.rec_desc)
+
+        form_card.setLayout(form)
+        layout.addWidget(form_card)
+
+        setup_btn = primary_btn("  Set Up Standing Order", 50)
+        setup_btn.clicked.connect(self._handle_recurring)
+        layout.addWidget(setup_btn)
+
+        history_grp = QGroupBox("My Standing Orders")
+        history_layout = QVBoxLayout()
+        self.rec_table = QTableWidget()
+        self.rec_table.setColumnCount(6)
+        self.rec_table.setHorizontalHeaderLabels(
+            ["Schedule ID", "Recipient", "Amount", "Frequency", "Next Run", "Status"]
+        )
+        self.rec_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.rec_table.setAlternatingRowColors(True)
+        self.rec_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.rec_table.verticalHeader().setVisible(False)
+        self.rec_table.setSelectionBehavior(QTableWidget.SelectRows)
+        history_layout.addWidget(self.rec_table)
+
+        cancel_btn = danger_btn("Cancel Selected Order", 36)
+        cancel_btn.clicked.connect(self._cancel_selected_recurring)
+        history_layout.addWidget(cancel_btn)
+
+        history_grp.setLayout(history_layout)
+        layout.addWidget(history_grp)
+
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _handle_recurring(self):
+        recipient = self.rec_recipient.text().strip()
+        amount    = self.rec_amount.value()
+        frequency = self.rec_frequency.currentText()
+        desc      = self.rec_desc.text().strip() or "Standing Order"
+        account_id = str(self.customer[8])
+
+        if not recipient or not recipient.isdigit() or len(recipient) != 15:
+            QMessageBox.warning(self, "Invalid Account",
+                "Recipient account must be exactly 15 digits.")
+            return
+        if recipient == account_id:
+            QMessageBox.warning(self, "Invalid", "Cannot set up a standing order to your own account.")
+            return
+
+        days = 7 if frequency == "Weekly" else 30
+        from datetime import timedelta
+        next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
+
+        reply = QMessageBox.question(self, "Confirm Standing Order",
+            f"Recipient : {recipient}\n"
+            f"Amount    : GHS {amount:.2f}\n"
+            f"Frequency : {frequency}\n"
+            f"First Run : {next_run}\n\n"
+            "Set up this standing order?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply != QMessageBox.Yes:
+            return
+
+        schedule_id = DB.create_recurring(account_id, recipient, amount, frequency, desc)
+        EmailService.send_recurring_confirmation(self.email, schedule_id, recipient, amount, frequency, next_run)
+        DB.add_notification(account_id,
+            f"Standing order set up: GHS {amount:.2f} to {recipient} every {frequency.lower()}.", "info")
+        self._update_notif_badge()
+        self._refresh_recurring_table()
+
+        QMessageBox.information(self, "Standing Order Created",
+            f"Your standing order has been set up!\n\n"
+            f"Schedule ID : {schedule_id}\n"
+            f"Recipient   : {recipient}\n"
+            f"Amount      : GHS {amount:.2f}\n"
+            f"Frequency   : {frequency}\n"
+            f"First Run   : {next_run}\n\n"
+            "A confirmation has been sent to your email.")
+
+        self.rec_recipient.clear()
+        self.rec_amount.setValue(1.0)
+        self.rec_desc.clear()
+
+    def _cancel_selected_recurring(self):
+        row = self.rec_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select a standing order to cancel.")
+            return
+        schedule_id = self.rec_table.item(row, 0).text()
+        status      = self.rec_table.item(row, 5).text()
+        if status == "Cancelled":
+            QMessageBox.information(self, "Already Cancelled", "This standing order is already cancelled.")
+            return
+        reply = QMessageBox.question(self, "Confirm Cancellation",
+            f"Cancel standing order {schedule_id}?\nThis cannot be undone.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            DB.cancel_recurring(schedule_id)
+            self._refresh_recurring_table()
+            QMessageBox.information(self, "Cancelled", "Standing order has been cancelled.")
+
+    def _refresh_recurring_table(self):
+        if not hasattr(self, 'rec_table') or not self.customer:
+            return
+        rows = DB.get_recurring(str(self.customer[8]))
+        self.rec_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            vals = [str(row[0]), str(row[2]), f"GHS {float(row[3]):,.2f}",
+                    str(row[4]), str(row[5]), str(row[6])]
+            for c, val in enumerate(vals):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                if c == 5 and val == "Cancelled":
+                    item.setForeground(QColor("#dc3545"))
+                elif c == 5 and val == "Active":
+                    item.setForeground(QColor("#276749"))
+                self.rec_table.setItem(r, c, item)
+
+    def _process_recurring(self):
+        """Called every 60s by QTimer to execute due standing orders."""
+        executed = DB.process_due_recurring()
+        for account_id, recipient, amount, desc in executed:
+            DB.add_notification(account_id,
+                f"Standing order executed: GHS {amount:.2f} sent to {recipient} ({desc}).", "info")
+        if executed and self.customer and str(self.customer[8]) in [e[0] for e in executed]:
+            self._refresh_balance()
+            self._update_notif_badge()
+
+    # ── Notifications page (page 12) ──────────────────────────────────────────
+    def _notifications_page(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(16)
+
+        hdr = QHBoxLayout()
+        title = QLabel("Notifications")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        hdr.addWidget(title)
+        hdr.addStretch()
+        mark_btn = QPushButton("Mark All Read")
+        mark_btn.setStyleSheet(
+            "background:#6c757d; color:white; border-radius:6px; padding:8px 18px; font-weight:bold;"
+        )
+        mark_btn.clicked.connect(self._mark_all_read)
+        hdr.addWidget(mark_btn)
+        layout.addLayout(hdr)
+
+        self.notif_table = QTableWidget()
+        self.notif_table.setColumnCount(4)
+        self.notif_table.setHorizontalHeaderLabels(["#", "Message", "Date", "Read"])
+        self.notif_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.notif_table.setAlternatingRowColors(True)
+        self.notif_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.notif_table.verticalHeader().setVisible(False)
+        self.notif_table.setSelectionBehavior(QTableWidget.SelectRows)
+        layout.addWidget(self.notif_table)
+        page.setLayout(layout)
+        return page
+
+    def _refresh_notifications(self):
+        if not hasattr(self, 'notif_table') or not self.customer:
+            return
+        rows = DB.get_notifications(str(self.customer[8]))
+        self.notif_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            is_read = bool(row[5])
+            vals = [str(r + 1), str(row[2]), str(row[4]), "Yes" if is_read else "Unread"]
+            for c, val in enumerate(vals):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter if c != 1 else Qt.AlignLeft | Qt.AlignVCenter)
+                if not is_read:
+                    item.setForeground(QColor("#007bff"))
+                    item.setFont(QFont("Arial", 10, QFont.Bold))
+                self.notif_table.setItem(r, c, item)
+
+    def _mark_all_read(self):
+        if not self.customer:
+            return
+        DB.mark_all_read(str(self.customer[8]))
+        self._refresh_notifications()
+        self._update_notif_badge()
+
+    def _update_notif_badge(self):
+        if not hasattr(self, '_notif_btn') or self._notif_btn is None or not self.customer:
+            return
+        count = DB.get_unread_count(str(self.customer[8]))
+        if count > 0:
+            self._notif_btn.setText(f"   Notifications  ({count})")
+        else:
+            self._notif_btn.setText("   Notifications")
+
     # ── Logout (mirrors Bank_Account_main.py com == 5) ────────────────────────
+    def _logout(self):
+        self.close()
+        app = QApplication.instance()
+        if hasattr(app, 'auth_window'):
+            app.auth_window.show()
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+#  ADMIN DASHBOARD
+# ═══════════════════════════════════════════════════════════════════════════════
+class AdminDashboard(QMainWindow):
+    """Separate admin view — accessed via ADMIN_EMAIL / ADMIN_PASSWORD credentials."""
+
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("Access Bank — Admin Portal")
+        self.setGeometry(60, 40, 1240, 800)
+        self.setStyleSheet(APP_STYLE)
+        self._build()
+
+    def _build(self):
+        central = QWidget()
+        self.setCentralWidget(central)
+        root = QHBoxLayout()
+        root.setContentsMargins(0, 0, 0, 0)
+        root.setSpacing(0)
+
+        self.pages = QStackedWidget()
+        self.pages.addWidget(self._admin_overview())   # 0
+        self.pages.addWidget(self._admin_accounts())   # 1
+        self.pages.addWidget(self._admin_transactions()) # 2
+
+        root.addWidget(self._sidebar())
+        root.addWidget(self.pages, 1)
+        central.setLayout(root)
+        self._refresh_overview()
+
+    def _sidebar(self):
+        sb = QWidget()
+        sb.setFixedWidth(220)
+        sb.setStyleSheet(SIDEBAR_STYLE)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(12, 0, 12, 20)
+        layout.setSpacing(2)
+
+        title = QLabel("ADMIN PORTAL")
+        title.setFont(QFont("Arial", 16, QFont.Bold))
+        title.setStyleSheet("color: #e74c3c; padding: 22px 10px 4px 10px; letter-spacing: 2px;")
+        layout.addWidget(title)
+
+        sub = QLabel("Access Bank")
+        sub.setStyleSheet("color: #aaaaaa; font-size: 11px; padding: 0 10px 16px 10px;")
+        layout.addWidget(sub)
+
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #3d566e; margin: 0 4px 10px 4px;")
+        layout.addWidget(sep)
+
+        self._admin_btns = []
+        for label, idx in [("   Overview", 0), ("   All Accounts", 1), ("   All Transactions", 2)]:
+            btn = QPushButton(label)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(46)
+            btn.clicked.connect(lambda _, i=idx: self._admin_nav(i))
+            self._admin_btns.append(btn)
+            layout.addWidget(btn)
+
+        layout.addStretch()
+
+        logout = QPushButton("   Logout")
+        logout.setMinimumHeight(46)
+        logout.setStyleSheet("""
+            QPushButton {
+                background-color: #dc3545; color: white; border: none;
+                border-radius: 4px; padding: 10px; font-weight: bold; text-align: left;
+            }
+            QPushButton:hover { background-color: #c82333; }
+        """)
+        logout.clicked.connect(self._logout)
+        layout.addWidget(logout)
+        sb.setLayout(layout)
+        self._admin_nav(0)
+        return sb
+
+    def _admin_nav(self, index):
+        self.pages.setCurrentIndex(index)
+        for i, btn in enumerate(self._admin_btns):
+            btn.setChecked(i == index)
+        if index == 0:
+            self._refresh_overview()
+        if index == 1:
+            self._refresh_accounts()
+        if index == 2:
+            self._refresh_all_txns()
+
+    def _admin_overview(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(22)
+
+        title = QLabel("Bank Overview")
+        title.setFont(QFont("Arial", 22, QFont.Bold))
+        layout.addWidget(title)
+
+        cards_row = QHBoxLayout()
+        cards_row.setSpacing(16)
+
+        def stat_card(subtitle):
+            card = QGroupBox()
+            cl = QVBoxLayout()
+            cl.setSpacing(4)
+            val = QLabel("—")
+            val.setFont(QFont("Arial", 24, QFont.Bold))
+            val.setStyleSheet("color: #e74c3c;")
+            val.setAlignment(Qt.AlignCenter)
+            sub = QLabel(subtitle)
+            sub.setStyleSheet("color: #718096; font-size: 12px;")
+            sub.setAlignment(Qt.AlignCenter)
+            cl.addWidget(val)
+            cl.addWidget(sub)
+            card.setLayout(cl)
+            return card, val
+
+        ac_card, self.adm_accounts  = stat_card("Total Accounts")
+        bl_card, self.adm_balance   = stat_card("Total Bank Balance")
+        tx_card, self.adm_txns      = stat_card("Total Transactions")
+
+        for c in [ac_card, bl_card, tx_card]:
+            cards_row.addWidget(c)
+        layout.addLayout(cards_row)
+
+        ref_btn = QPushButton("Refresh Stats")
+        ref_btn.setStyleSheet(
+            "background:#e2e8f0; border-radius:6px; padding:8px 18px; color:#2d3748;"
+        )
+        ref_btn.clicked.connect(self._refresh_overview)
+        layout.addWidget(ref_btn, alignment=Qt.AlignLeft)
+        layout.addStretch()
+        page.setLayout(layout)
+        return page
+
+    def _refresh_overview(self):
+        if not hasattr(self, 'adm_accounts'):
+            return
+        accounts, total_bal, total_txn = DB.get_bank_totals()
+        self.adm_accounts.setText(str(accounts))
+        self.adm_balance.setText(f"GHS {total_bal:,.2f}")
+        self.adm_txns.setText(str(total_txn))
+
+    def _admin_accounts(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(16)
+
+        hdr = QHBoxLayout()
+        title = QLabel("All Customer Accounts")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        hdr.addWidget(title)
+        hdr.addStretch()
+        ref = QPushButton("Refresh")
+        ref.setStyleSheet("background:#e2e8f0; border-radius:6px; padding:8px 18px; color:#2d3748;")
+        ref.clicked.connect(self._refresh_accounts)
+        hdr.addWidget(ref)
+        layout.addLayout(hdr)
+
+        self.adm_acc_table = QTableWidget()
+        self.adm_acc_table.setColumnCount(5)
+        self.adm_acc_table.setHorizontalHeaderLabels(
+            ["Customer Name", "Email", "Account Number", "Balance (GHS)", "Status"]
+        )
+        self.adm_acc_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.adm_acc_table.setAlternatingRowColors(True)
+        self.adm_acc_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.adm_acc_table.verticalHeader().setVisible(False)
+        self.adm_acc_table.setSelectionBehavior(QTableWidget.SelectRows)
+        layout.addWidget(self.adm_acc_table)
+
+        btn_row = QHBoxLayout()
+        freeze_btn = danger_btn("Freeze Selected Account", 38)
+        freeze_btn.clicked.connect(self._freeze_selected)
+        unfreeze_btn = success_btn("Unfreeze Selected Account", 38)
+        unfreeze_btn.clicked.connect(self._unfreeze_selected)
+        btn_row.addWidget(freeze_btn)
+        btn_row.addWidget(unfreeze_btn)
+        btn_row.addStretch()
+        layout.addLayout(btn_row)
+
+        page.setLayout(layout)
+        return page
+
+    def _refresh_accounts(self):
+        if not hasattr(self, 'adm_acc_table'):
+            return
+        rows = DB.get_all_accounts()
+        self.adm_acc_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            vals = [str(row[0]), str(row[1]), str(row[2]),
+                    f"{float(row[3]):,.2f}", str(row[4])]
+            for c, val in enumerate(vals):
+                item = QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                if c == 4 and val == "Frozen":
+                    item.setForeground(QColor("#dc3545"))
+                elif c == 4 and val == "Active":
+                    item.setForeground(QColor("#276749"))
+                self.adm_acc_table.setItem(r, c, item)
+
+    def _freeze_selected(self):
+        row = self.adm_acc_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select an account first.")
+            return
+        account_id = self.adm_acc_table.item(row, 2).text()
+        name       = self.adm_acc_table.item(row, 0).text()
+        reply = QMessageBox.question(self, "Confirm Freeze",
+            f"Freeze account {account_id} ({name})?\n"
+            "The customer will not be able to make transfers.",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            DB.freeze_account(account_id)
+            self._refresh_accounts()
+            QMessageBox.information(self, "Account Frozen", f"Account {account_id} has been frozen.")
+
+    def _unfreeze_selected(self):
+        row = self.adm_acc_table.currentRow()
+        if row < 0:
+            QMessageBox.warning(self, "No Selection", "Please select an account first.")
+            return
+        account_id = self.adm_acc_table.item(row, 2).text()
+        name       = self.adm_acc_table.item(row, 0).text()
+        reply = QMessageBox.question(self, "Confirm Unfreeze",
+            f"Unfreeze account {account_id} ({name})?",
+            QMessageBox.Yes | QMessageBox.No
+        )
+        if reply == QMessageBox.Yes:
+            DB.unfreeze_account(account_id)
+            self._refresh_accounts()
+            QMessageBox.information(self, "Account Unfrozen", f"Account {account_id} has been unfrozen.")
+
+    def _admin_transactions(self):
+        page = QWidget()
+        layout = QVBoxLayout()
+        layout.setContentsMargins(34, 30, 34, 30)
+        layout.setSpacing(16)
+
+        hdr = QHBoxLayout()
+        title = QLabel("All Transactions")
+        title.setFont(QFont("Arial", 20, QFont.Bold))
+        hdr.addWidget(title)
+        hdr.addStretch()
+        ref = QPushButton("Refresh")
+        ref.setStyleSheet("background:#e2e8f0; border-radius:6px; padding:8px 18px; color:#2d3748;")
+        ref.clicked.connect(self._refresh_all_txns)
+        hdr.addWidget(ref)
+        layout.addLayout(hdr)
+
+        self.adm_txn_table = QTableWidget()
+        self.adm_txn_table.setColumnCount(6)
+        self.adm_txn_table.setHorizontalHeaderLabels(
+            ["Transaction ID", "From Account", "To Account", "Amount (GHS)", "Date & Time", "Status"]
+        )
+        self.adm_txn_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.adm_txn_table.setAlternatingRowColors(True)
+        self.adm_txn_table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.adm_txn_table.verticalHeader().setVisible(False)
+        layout.addWidget(self.adm_txn_table)
+        page.setLayout(layout)
+        return page
+
+    def _refresh_all_txns(self):
+        if not hasattr(self, 'adm_txn_table'):
+            return
+        rows = DB.get_all_transactions()
+        self.adm_txn_table.setRowCount(len(rows))
+        for r, row in enumerate(rows):
+            for c, val in enumerate(row):
+                item = QTableWidgetItem(
+                    f"GHS {float(val):,.2f}" if c == 3 else str(val)
+                )
+                item.setTextAlignment(Qt.AlignCenter)
+                if c == 5 and str(val) == "Completed":
+                    item.setForeground(QColor("#276749"))
+                self.adm_txn_table.setItem(r, c, item)
+
     def _logout(self):
         self.close()
         app = QApplication.instance()
@@ -2223,12 +3091,18 @@ class AccessBankApp(QApplication):
         DB.init()
         self.auth_window = AuthWindow()
         self.auth_window.login_success.connect(self._on_login)
+        self.auth_window.admin_login.connect(self._on_admin_login)
         self.auth_window.show()
 
     def _on_login(self, email: str):
         self.auth_window.hide()
         self.dashboard = Dashboard(email)
         self.dashboard.show()
+
+    def _on_admin_login(self):
+        self.auth_window.hide()
+        self.admin_dashboard = AdminDashboard()
+        self.admin_dashboard.show()
 
 
 if __name__ == "__main__":
