@@ -40,8 +40,8 @@ except ImportError:
 BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
 BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
 DB_FILE = "Bank_JH.db"
-ADMIN_EMAIL    = "admin@accessbank.com"
-ADMIN_PASSWORD = "Admin@AccessBank1!"
+ADMIN_EMAIL    = "admin"
+ADMIN_PASSWORD = "admin1"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
