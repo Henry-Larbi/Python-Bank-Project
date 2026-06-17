@@ -1,0 +1,16 @@
+Transaction Initiated
+Account DEPOSIT sent GHc100.00 at 2026-06-16 14:54:04
+Transaction Successful
+---
+Transaction Initiated
+Account 168249357689327 sent GHc10.00 at 2026-06-16 14:55:26
+Transaction Successful
+---
+Transaction Initiated
+Account DEPOSIT sent GHc10000.00 at 2026-06-16 20:35:36
+Transaction Successful
+---
+Transaction Initiated
+Account 168249357689327 sent GHc60.50 at 2026-06-16 20:37:12
+Transaction Successful
+---
