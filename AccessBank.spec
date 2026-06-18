@@ -3,7 +3,7 @@
 block_cipher = None
 
 a = Analysis(
-    ['final_main_gui_bank.py'],
+    ['AccessBank_desktop.py'],
     pathex=['.'],
     binaries=[],
     datas=[],
