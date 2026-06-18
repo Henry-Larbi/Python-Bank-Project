@@ -1211,8 +1211,15 @@ class AuthWindow(QWidget):
             QMessageBox.warning(self, "Invalid Email", "Please enter a valid email address.")
             return
 
-        # Mirrors Bank_bulid_1.check()
-        if DB.login(email, password):
+        try:
+            matched = DB.login(email, password)
+        except Exception as e:
+            QMessageBox.critical(self, "Connection Error",
+                f"Could not connect to the database.\n"
+                f"Check your internet connection and try again.\n\nDetail: {e}")
+            return
+
+        if matched:
             self.login_email.clear()
             self.login_password.clear()
             self.login_success.emit(email)
@@ -1282,7 +1289,15 @@ class AuthWindow(QWidget):
             return
 
         # Duplicate check (mirrors Sign_up_check from Bank_bulid_1.py)
-        if DB.is_duplicate(email):
+        try:
+            duplicate = DB.is_duplicate(email)
+        except Exception as e:
+            QMessageBox.critical(self, "Connection Error",
+                f"Could not connect to the database.\n"
+                f"Check your internet connection and try again.\n\nDetail: {e}")
+            return
+
+        if duplicate:
             QMessageBox.warning(self, "Account Exists",
                 "An account with this email already exists.\nPlease sign in instead.")
             return
