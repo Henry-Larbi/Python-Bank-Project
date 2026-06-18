@@ -1,6 +1,11 @@
 # Access Bank — Python Banking Application
 
-A full-featured banking system built in Python, offering both a command-line interface (CLI) and a modern graphical user interface (GUI) powered by PyQt5. The application covers account registration, authentication, fund transfers, OTP-secured password changes, transaction history, and customer care — all backed by a local SQLite database.
+A full-featured banking system built in Python, available in three forms:
+- **Original GUI** — PyQt5 desktop app (the source)
+- **Desktop .exe** — standalone Windows executable built with PyInstaller
+- **Android APK** — mobile app built with Kivy/KivyMD
+
+All three connect to the same **Supabase cloud PostgreSQL database**, so every user's data is centralised — no local database files needed.
 
 ---
 
@@ -8,10 +13,12 @@ A full-featured banking system built in Python, offering both a command-line int
 
 - [Features](#features)
 - [Project Structure](#project-structure)
-- [Architecture Overview](#architecture-overview)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Running the Application](#running-the-application)
+- [Cloud Database Setup](#cloud-database-setup)
+- [Configuration](#configuration)
+- [Running the Original GUI](#running-the-original-gui)
+- [Building the Desktop .exe](#building-the-desktop-exe)
+- [Building the Android APK](#building-the-android-apk)
+- [Mobile App Screens](#mobile-app-screens)
 - [File Reference](#file-reference)
 - [Database Schema](#database-schema)
 - [Email Service](#email-service)
@@ -21,19 +28,24 @@ A full-featured banking system built in Python, offering both a command-line int
 
 ## Features
 
-| Feature | CLI | GUI |
+| Feature | Desktop GUI | Mobile App |
 |---|---|---|
 | Account Registration | ✅ | ✅ |
 | Login / Authentication | ✅ | ✅ |
 | Send Money (Transfer) | ✅ | ✅ |
 | View Balance | ✅ | ✅ |
 | Transaction History | ✅ | ✅ |
-| Change Password (OTP-verified) | ✅ | ✅ |
-| Customer Care Messaging | ✅ | ✅ |
-| Password Generator | ✅ | ✅ |
-| Welcome Email on Sign-up | ✅ | ✅ |
+| Change Password (OTP) | ✅ | ✅ |
+| Loans | ✅ | — |
+| Fixed Deposits | ✅ | — |
+| Bill Payments | ✅ | — |
+| Recurring Payments | ✅ | — |
+| Notifications | ✅ | — |
+| Admin Dashboard | ✅ | — |
+| Fraud Detection | ✅ | — |
+| Welcome Email | ✅ | ✅ |
 | Transaction Confirmation Email | ✅ | ✅ |
-| OTP Email Verification | ✅ | ✅ |
+| Password Generator | ✅ | ✅ |
 
 ---
 
@@ -42,281 +54,348 @@ A full-featured banking system built in Python, offering both a command-line int
 ```
 Python-Bank-Project/
 │
-├── final_main_gui_bank.py      # ★ Main entry point — standalone GUI (recommended)
+├── final_main_gui_bank.py      # ★ Original PyQt5 GUI (untouched source)
+├── AccessBank_desktop.py       # Copy of above — used for .exe builds
 │
-├── bank_gui_main.py            # Alternative GUI (imports from other modules)
+├── AccessBank.spec             # PyInstaller config → builds AccessBank.exe
+├── build.bat                   # Windows: double-click to build .exe
+├── build.sh                    # Mac/Linux: run to build executable
 │
-├── Bank_interface.py           # CLI — registration & sign-in interface
-├── Bank_Account_main.py        # CLI — dashboard (transfer, password, care, logout)
+├── mobile/                     # Android APK (Kivy/KivyMD)
+│   ├── main.py                 # App entry point
+│   ├── buildozer.spec          # Android build config
+│   ├── requirements.txt        # Mobile dependencies
+│   └── screens/
+│       ├── login.py
+│       ├── register.py
+│       ├── dashboard.py
+│       ├── send_money.py
+│       ├── transactions.py
+│       └── change_password.py
 │
-├── Bank_bulid_1.py             # Core: registration logic, login check, email, password gen
-├── Bank_account.py             # Core: transactions, amount checks, password change, reports
+├── db.py                       # Shared cloud database functions (psycopg2)
+├── config.py                   # ★ Supabase URL + email credentials (edit this)
+├── email_service.py            # Email module (OTP, notifications, welcome)
 │
-├── email_service.py            # Standalone email module (can be run & imported separately)
+├── Bank_account.py             # Core banking logic module
+├── Bank_Account_main.py        # CLI dashboard
+├── Bank_bulid_1.py             # Core registration & login logic
 │
-├── Bank_JH.db                  # SQLite database (auto-created on first run)
-├── Bank_JH.txt                 # Text backup of registered customer credentials (append)
-├── Bank_Transaction.txt        # Text log of all transactions (append)
-└── Bank_customer_report.docx   # Customer care messages (auto-created, requires python-docx)
+└── requirements.txt            # Desktop dependencies
 ```
 
 ---
 
-## Architecture Overview
+## Cloud Database Setup
 
-The project is organised in two layers:
+This project uses **Supabase** (hosted PostgreSQL) as its central database. All users — whether on the desktop app, `.exe`, or Android APK — connect to the same database.
 
-### Core Layer (shared logic)
+### Step 1 — Create a Supabase project
 
-```
-Bank_bulid_1.py
-  ├── Register_Identity   — creates accounts, writes to DB and Bank_JH.txt
-  ├── Sign_up_check       — prevents duplicate email registration
-  ├── check()             — validates login credentials against DB
-  ├── send_email          — sends welcome emails via SMTP
-  └── Passwordgenerator   — generates strong random passwords
+1. Go to [supabase.com](https://supabase.com) and sign up (free)
+2. Click **New Project**, give it a name, set a password, choose a region
+3. Wait ~2 minutes for the project to initialise
 
-Bank_account.py
-  ├── Amount              — reads current account balance from DB
-  ├── Transaction         — checks funds, deducts sender, credits recipient, logs to DB
-  ├── Changepassword      — sends OTP email, updates password in DB
-  ├── customer_message()  — appends customer care messages to .docx report
-  └── get_account_number()— retrieves account number and balance by email
-```
+### Step 2 — Get your connection string
 
-### Interface Layer (CLI and GUI)
+1. In your project → **Settings** → **Database** → **Connection string** → **URI**
+2. Copy the string — it looks like:
+   ```
+   postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
+   ```
 
-```
-CLI path:
-  Bank_interface.py  →  Bank_Account_main.py
-       ↓                        ↓
-  (Registration &          (Dashboard: transfer,
-   Sign-in)                 password change, care)
+### Step 3 — Create the tables
 
-GUI path (integrated):
-  final_main_gui_bank.py  (self-contained — no imports from other project files)
-       ├── DB class         — all database operations
-       ├── EmailService     — OTP, transaction, and welcome emails
-       ├── AuthWindow       — Login + Registration (tabbed, resizable)
-       ├── OTPDialog        — modal OTP verification dialog
-       └── Dashboard        — 6-page sidebar navigation
-             ├── Overview          (balance card + quick actions)
-             ├── Send Money        (transfer with email confirmation)
-             ├── Transaction History (full log table)
-             ├── Change Password   (OTP-secured)
-             ├── Customer Care     (sends message to .docx report)
-             └── My Profile        (account info + password generator)
+Go to **SQL Editor** in your Supabase dashboard and run:
 
-GUI path (modular):
-  bank_gui_main.py  →  imports Bank_bulid_1, Bank_account
+```sql
+CREATE TABLE IF NOT EXISTS Customer_services (
+    Customer_Name     TEXT NOT NULL,
+    Customer_Age      TEXT NOT NULL,
+    Customer_Gender   TEXT NOT NULL,
+    Customer_Status   TEXT NOT NULL,
+    Customer_Location TEXT NOT NULL,
+    Customer_Phone    TEXT NOT NULL,
+    Customer_Email    TEXT NOT NULL UNIQUE PRIMARY KEY,
+    Customer_password TEXT NOT NULL,
+    Customer_ID       INTEGER NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS Account (
+    Account_id       TEXT PRIMARY KEY,
+    Customer_ID      INTEGER,
+    Current_amount   REAL DEFAULT 0,
+    Transaction_Date TEXT,
+    Transaction_ID   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS Transactions (
+    Transaction_ID   TEXT PRIMARY KEY,
+    From_Account     TEXT,
+    To_Account       TEXT,
+    Amount           REAL,
+    Transaction_Date TEXT,
+    Status           TEXT
+);
+
+CREATE TABLE IF NOT EXISTS Loans (
+    Loan_ID         TEXT PRIMARY KEY,
+    Account_ID      TEXT,
+    Amount          REAL,
+    Interest_Rate   REAL,
+    Months          INTEGER,
+    Monthly_Payment REAL,
+    Start_Date      TEXT,
+    Status          TEXT DEFAULT 'Active',
+    Amount_Repaid   REAL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS FixedDeposits (
+    FD_ID           TEXT PRIMARY KEY,
+    Account_ID      TEXT,
+    Amount          REAL,
+    Interest_Rate   REAL,
+    Days            INTEGER,
+    Start_Date      TEXT,
+    Maturity_Date   TEXT,
+    Expected_Return REAL,
+    Status          TEXT DEFAULT 'Active'
+);
+
+CREATE TABLE IF NOT EXISTS BillPayments (
+    Payment_ID   TEXT PRIMARY KEY,
+    Account_ID   TEXT,
+    Biller       TEXT,
+    Amount       REAL,
+    Payment_Date TEXT,
+    Status       TEXT DEFAULT 'Paid'
+);
+
+CREATE TABLE IF NOT EXISTS RecurringPayments (
+    Schedule_ID   TEXT PRIMARY KEY,
+    Account_ID    TEXT,
+    Recipient_ID  TEXT,
+    Amount        REAL,
+    Frequency     TEXT,
+    Next_Run_Date TEXT,
+    Status        TEXT DEFAULT 'Active',
+    Description   TEXT
+);
+
+CREATE TABLE IF NOT EXISTS Notifications (
+    Notif_ID     TEXT PRIMARY KEY,
+    Account_ID   TEXT,
+    Message      TEXT,
+    Type         TEXT,
+    Created_Date TEXT,
+    Is_Read      INTEGER DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS FrozenAccounts (
+    Account_ID  TEXT PRIMARY KEY,
+    Frozen_Date TEXT,
+    Reason      TEXT
+);
 ```
 
 ---
 
-## Requirements
+## Configuration
 
-- Python 3.8 or higher
-- PyQt5
-- python-docx *(optional — required only for Customer Care message saving)*
-
-Install all dependencies:
-
-```bash
-pip install PyQt5 python-docx
-```
-
----
-
-## Installation
-
-```bash
-# 1. Clone the repository
-git clone https://github.com/henry-larbi/python-bank-project.git
-cd python-bank-project
-
-# 2. Install dependencies
-pip install PyQt5 python-docx
-
-# 3. Run the application
-python final_main_gui_bank.py
-```
-
-The SQLite database (`Bank_JH.db`) and all required tables are created automatically on first launch — no setup required.
-
----
-
-## Running the Application
-
-### Recommended — Integrated GUI (single file, no dependencies on other project files)
-
-```bash
-python final_main_gui_bank.py
-```
-
-### Alternative GUI (modular, imports from core files)
-
-```bash
-python bank_gui_main.py
-```
-
-### CLI — Registration & Sign-in
-
-```bash
-python Bank_interface.py
-```
-
-### CLI — Dashboard (requires a logged-in email passed as an argument)
-
-```bash
-python Bank_Account_main.py your@email.com
-```
-
-### Email Service (standalone test / import)
-
-```bash
-python email_service.py
-```
-
-Or import it in any script:
+Open `config.py` and fill in your credentials:
 
 ```python
-from email_service import send_otp, send_transaction_confirmation, send_welcome
+# Supabase PostgreSQL connection string (from Step 2 above)
+DATABASE_URL = "postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres"
+
+# Gmail address used to send OTPs and notifications
+BANK_EMAIL = "your@gmail.com"
+
+# Gmail App Password (not your regular password)
+# Get it from: Google Account → Security → 2-Step Verification → App passwords
+BANK_EMAIL_PASSWORD = "xxxx xxxx xxxx xxxx"
+
+# Admin panel credentials
+ADMIN_EMAIL    = "admin"
+ADMIN_PASSWORD = "admin1"
 ```
+
+> `config.py` is the only file you need to edit. All three app versions read from it.
+
+---
+
+## Running the Original GUI
+
+```bash
+# Install dependencies
+pip install -r requirements.txt
+
+# Run
+python final_main_gui_bank.py
+```
+
+**Requirements:** Python 3.8+, PyQt5, psycopg2-binary, python-docx
+
+---
+
+## Building the Desktop .exe
+
+The `.exe` bundles everything — PyQt5, psycopg2, config, and all logic — into a single file. No Python installation needed on the target machine.
+
+**On Windows — double-click `build.bat`**
+
+**On Mac/Linux:**
+```bash
+chmod +x build.sh
+./build.sh
+```
+
+The finished executable appears at `dist/AccessBank.exe` (Windows) or `dist/AccessBank` (Mac/Linux).
+
+> Build the `.exe` on Windows if your users are on Windows. The output platform matches the build machine.
+
+**Files to share with others:**
+```
+dist/AccessBank.exe   ← the only file they need
+```
+
+---
+
+## Building the Android APK
+
+The mobile app is built with Kivy and KivyMD. Building requires **Linux** (use WSL on Windows).
+
+```bash
+# Install Buildozer
+pip install buildozer
+
+# Build the APK (first build takes 15–30 min — downloads Android SDK/NDK)
+cd mobile
+buildozer android debug
+```
+
+The APK appears at `mobile/bin/AccessBank-1.0-debug.apk`.
+
+**Test on your computer first (before building APK):**
+```bash
+cd mobile
+pip install -r requirements.txt
+python main.py
+```
+
+---
+
+## Mobile App Screens
+
+| Screen | Features |
+|---|---|
+| Login | Email + password, connects to Supabase |
+| Register | Full validation, auto-generates 15-digit account number |
+| Dashboard | Balance card, account number, quick action buttons |
+| Send Money | Transfer funds with balance check and receipt |
+| Transactions | Full history with sent/received labels |
+| Change Password | OTP sent to email → update password |
 
 ---
 
 ## File Reference
 
+### `config.py`
+Central configuration file. Contains the Supabase connection URL, Gmail credentials, and admin login. **This is the only file you need to edit** to connect the app to your database.
+
+### `db.py`
+Shared database module used by all three app versions. Provides functions:
+
+| Function | Description |
+|---|---|
+| `get_connection()` | Opens a psycopg2 connection to Supabase |
+| `init_tables()` | Creates all tables if they don't exist |
+| `login(email, password)` | Validates credentials |
+| `register(...)` | Creates a new customer and account |
+| `is_duplicate(email)` | Checks if email is already registered |
+| `get_customer(email)` | Fetches customer row |
+| `get_account(customer_id)` | Fetches account row |
+| `get_transactions(account_id)` | Returns full transaction history |
+| `transfer(sender, recipient, amount)` | Atomic debit/credit transfer |
+| `record_transaction(...)` | Saves transaction to DB |
+| `update_password(email, new_password)` | Updates customer password |
+
 ### `final_main_gui_bank.py`
-The recommended entry point. A fully self-contained PyQt5 application — all database operations, email logic, validation, and UI are embedded in a single file. No imports from other project files are needed.
+The original self-contained PyQt5 desktop application. All database operations, email logic, validation, and UI are in one file. Kept as the untouched source of truth.
 
-**Key classes:**
+### `AccessBank_desktop.py`
+An exact copy of `final_main_gui_bank.py` used as the entry point for PyInstaller builds. Keeping it separate ensures the original is never altered during the build process.
 
-| Class | Responsibility |
-|---|---|
-| `DB` | All SQLite operations (init tables, register, login, transfer, history) |
-| `EmailService` | Sends OTP, transaction confirmation, and welcome emails via SMTP_SSL |
-| `AuthWindow` | Tabbed login / registration window with full field validation |
-| `OTPDialog` | Modal dialog for entering and verifying a one-time password |
-| `Dashboard` | Main window with sidebar navigation across 6 feature pages |
-| `AccessBankApp` | Application entry point; initialises DB and shows AuthWindow |
+### `AccessBank.spec`
+PyInstaller build configuration. Specifies `AccessBank_desktop.py` as the entry point, includes all hidden imports (psycopg2, PyQt5), and sets `console=False` for a clean GUI-only window.
 
----
+### `build.bat` / `build.sh`
+One-click build scripts. Install all dependencies and run PyInstaller automatically.
 
-### `bank_gui_main.py`
-An alternative GUI that imports `Bank_bulid_1` and `Bank_account` for its logic. Functionally equivalent to `final_main_gui_bank.py` but relies on the other project files being present.
+### `mobile/main.py`
+Kivy/KivyMD application entry point. Initialises the screen manager and registers all screens. Reads `config.py` and `db.py` from the parent directory.
 
----
-
-### `Bank_bulid_1.py`
-Core infrastructure module.
-
-- `Register_Identity` — validates and stores a new customer in `Customer_services` and creates their `Account` row with a 15-digit account number.
-- `Sign_up_check` — queries the DB to prevent duplicate email registrations.
-- `check(email, password)` — returns `True` if credentials match the DB record.
-- `send_email` — sends a welcome email using `smtplib`.
-- `Passwordgenerator.generate()` — returns a random 10-character strong password (uppercase, lowercase, digits, symbols).
-
----
-
-### `Bank_account.py`
-Core account operations module.
-
-- `Amount.check_amount()` — fetches current balance for an account ID.
-- `Transaction` — handles the full transfer flow: balance check on the sender, atomic debit/credit, transaction ID generation, text report, and DB record.
-- `Changepassword` — sends an OTP email and updates the password in `Customer_services`.
-- `customer_message(msg)` — appends a customer care message to `Bank_customer_report.docx`.
-- `get_account_number(email)` — retrieves the account number and balance for a given email.
-
----
-
-### `Bank_interface.py`
-CLI entry point for registration and sign-in. Validates all input (name format, phone pattern `050-000-0000`, email regex, strong password, status) before calling `Register_Identity.register()` or `Register_Identity.register_not()` depending on whether the database already exists.
-
----
-
-### `Bank_Account_main.py`
-CLI dashboard launched after login. Accepts the user's email as a command-line argument.
-
-| Option | Action |
-|---|---|
-| 1 | Send Money — validates recipient account (15 digits), checks balance, transfers funds |
-| 2 | Change Password — sends OTP, verifies code, updates password |
-| 3 | View Transactions *(placeholder)* |
-| 4 | Customer Care — sends a message to the `.docx` report |
-| 5 | Logout |
-
----
+### `mobile/buildozer.spec`
+Android build configuration. Targets API 33, supports ARM64 and ARMv7, requests `INTERNET` permission for the Supabase connection.
 
 ### `email_service.py`
-Standalone module containing all email-sending functions. Can be imported by any script or executed directly to test email delivery.
+Standalone email module. Imports credentials from `config.py`.
 
 | Function | Purpose |
 |---|---|
-| `send_otp(to_email, otp_code)` | Sends a 6-digit password reset code |
-| `send_transaction_confirmation(...)` | Sends transfer details after a successful payment |
-| `send_welcome(to_email, name, account_id, username)` | Sends account credentials on registration |
+| `send_otp(to, code)` | Sends a 6-digit password reset OTP |
+| `send_transaction_confirmation(...)` | Sends transfer receipt to sender |
+| `send_welcome(to, name, account_id, username)` | Sends account details on registration |
 
-Uses `smtplib.SMTP_SSL` on port **465** with `msg.encode("utf-8")` to support all characters.
+### `Bank_account.py`
+Core banking logic used by the CLI and modular builds. Updated to use `db.py` and `config.py`.
+
+### `Bank_bulid_1.py`
+Core registration and login logic used by the CLI. Updated to use `db.py` and `config.py`.
+
+### `Bank_Account_main.py`
+CLI dashboard. Launched with a user's email as a command-line argument:
+```bash
+python Bank_Account_main.py user@example.com
+```
 
 ---
 
 ## Database Schema
 
-**`Customer_services`**
+The database has 9 tables hosted on Supabase PostgreSQL:
 
-| Column | Type | Description |
-|---|---|---|
-| Customer_Name | TEXT | Full name |
-| Customer_Age | TEXT | Age |
-| Customer_Gender | TEXT | Male / Female |
-| Customer_Status | TEXT | Single / Married / Student |
-| Customer_Location | TEXT | Town or city |
-| Customer_Phone | TEXT | Format: 050-000-0000 |
-| Customer_Email | TEXT (PK) | Unique login identifier |
-| Customer_password | TEXT | Plain-text password |
-| Customer_ID | INT (UNIQUE) | 15-digit auto-generated account number |
-
-**`Account`**
-
-| Column | Type | Description |
-|---|---|---|
-| Account_id | TEXT (PK) | String form of Customer_ID |
-| Customer_ID | INT | Foreign key to Customer_services |
-| Current_amount | REAL | Running balance (default 0.0) |
-| Transaction_Date | TEXT | Date of last transaction |
-| Transaction_ID | TEXT | ID of last transaction |
-
-**`Transactions`**
-
-| Column | Type | Description |
-|---|---|---|
-| Transaction_ID | TEXT (PK) | 9-digit unique transaction reference |
-| From_Account | TEXT | Sender's account ID |
-| To_Account | TEXT | Recipient's account ID |
-| Amount | REAL | Amount transferred (GHS) |
-| Transaction_Date | TEXT | Timestamp of transaction |
-| Status | TEXT | e.g. "Completed" |
+| Table | Purpose |
+|---|---|
+| `Customer_services` | Customer profiles and login credentials |
+| `Account` | Account balances and transaction references |
+| `Transactions` | Full transfer history |
+| `Loans` | Loan records with repayment tracking |
+| `FixedDeposits` | Fixed deposit investments |
+| `BillPayments` | Utility and bill payment records |
+| `RecurringPayments` | Standing orders / scheduled transfers |
+| `Notifications` | In-app notification feed |
+| `FrozenAccounts` | Admin-frozen account records |
 
 ---
 
 ## Email Service
 
-Outgoing emails are sent from the bank's Gmail account using **SMTP_SSL on port 465**. Three email types are supported:
+All emails are sent from the configured Gmail account via **SMTP_SSL (port 465)**:
 
-1. **Welcome Email** — sent on successful registration with account credentials.
-2. **OTP / Password Reset** — a 6-digit one-time code valid for 10 minutes, sent before any password change.
-3. **Transaction Confirmation** — sent to the sender after every successful transfer, showing amount, recipient, transaction ID, and remaining balance.
+1. **Welcome Email** — sent on successful registration with account number and username
+2. **OTP / Password Reset** — 6-digit one-time code, valid for 10 minutes
+3. **Transaction Confirmation** — sent to sender after every successful transfer
 
-The bank email credentials are defined as constants in `final_main_gui_bank.py` (`BANK_EMAIL`, `BANK_EMAIL_PASSWORD`) and in `Bank_account.py` for the modular files.
-
-> **Gmail requirement:** The account must have **2-Step Verification** enabled and use an **App Password** (not the regular account password) in `BANK_EMAIL_PASSWORD`.
+> Gmail requires **2-Step Verification** enabled and an **App Password** (not your regular Gmail password) set in `config.py`.
 
 ---
 
 ## Security Notes
 
-- Passwords are stored as plain text in the current implementation. For production use, replace with `bcrypt` or `hashlib` hashing.
-- The bank email app password is stored directly in source files. For production, move credentials to environment variables or a secrets manager.
-- OTP codes are valid for 10 minutes (enforced by messaging only — no server-side expiry timer in the current version).
-- Account numbers are 15-digit randomly sampled integers, unique per customer.
+- Passwords are stored as plain text. For a production system, replace with `bcrypt` hashing.
+- The `Bank_JH.db` local database file is gitignored and no longer used — all data lives in Supabase.
+- `config.py` contains sensitive credentials. Do not commit it to a public repository without replacing the real values with placeholders.
+- OTP codes are single-use and expire in 10 minutes (enforced by messaging — no server-side timer).
+- Account numbers are 15-digit randomly generated integers, unique per customer.
+- The admin panel is accessible only from the desktop GUI using the credentials in `config.py`.
