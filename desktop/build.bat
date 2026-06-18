@@ -9,7 +9,7 @@ pip install pyinstaller psycopg2-binary PyQt5 python-docx
 echo.
 
 echo Step 2: Building executable...
-pyinstaller AccessBank.spec --clean
+python -m PyInstaller AccessBank.spec --clean
 echo.
 
 if exist "dist\AccessBank.exe" (
