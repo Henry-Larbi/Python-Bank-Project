@@ -3,4 +3,7 @@ __pycache__/
 *.pyo
 *.pyd
 .env
+*.db
 *.db-journal
+Bank_JH.txt
+Bank_Transaction.txt

@@ -15,10 +15,12 @@ import csv
 import time
 import random
 import string
-import sqlite3
 import smtplib
 from datetime import datetime, timedelta
 from email.message import EmailMessage
+
+import db
+import config
 
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
@@ -36,12 +38,11 @@ try:
 except ImportError:
     DOCX_AVAILABLE = False
 
-# ── Bank credentials (single source of truth) ────────────────────────────────
-BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
-BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
-DB_FILE = "Bank_JH.db"
-ADMIN_EMAIL    = "admin"
-ADMIN_PASSWORD = "admin1"
+# ── Bank credentials loaded from config.py ───────────────────────────────────
+BANK_EMAIL      = config.BANK_EMAIL
+BANK_EMAIL_PASSWORD = config.BANK_EMAIL_PASSWORD
+ADMIN_EMAIL     = config.ADMIN_EMAIL
+ADMIN_PASSWORD  = config.ADMIN_PASSWORD
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -51,7 +52,7 @@ class DB:
     @staticmethod
     def init():
         """Ensure all required tables exist — safe to call on every startup."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             CREATE TABLE IF NOT EXISTS Customer_services(
@@ -146,29 +147,29 @@ class DB:
 
     @staticmethod
     def get_customer(email):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM Customer_services WHERE Customer_Email = ?", (email,))
+        cur.execute("SELECT * FROM Customer_services WHERE Customer_Email = %s", (email,))
         row = cur.fetchone()
         conn.close()
         return row
 
     @staticmethod
     def get_account(customer_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM Account WHERE Customer_ID = ?", (customer_id,))
+        cur.execute("SELECT * FROM Account WHERE Customer_ID = %s", (customer_id,))
         row = cur.fetchone()
         conn.close()
         return row
 
     @staticmethod
     def get_transactions(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             SELECT * FROM Transactions
-            WHERE From_Account = ? OR To_Account = ?
+            WHERE From_Account = %s OR To_Account = %s
             ORDER BY Transaction_Date DESC
         ''', (str(account_id), str(account_id)))
         rows = cur.fetchall()
@@ -178,9 +179,9 @@ class DB:
     @staticmethod
     def login(email, password):
         """Return True if credentials match (mirrors Bank_bulid_1.check())."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Customer_password FROM Customer_services WHERE Customer_Email = ?", (email,))
+        cur.execute("SELECT Customer_password FROM Customer_services WHERE Customer_Email = %s", (email,))
         data = cur.fetchone()
         conn.close()
         return data is not None and password == data[0]
@@ -188,9 +189,9 @@ class DB:
     @staticmethod
     def is_duplicate(email):
         """Return True if email already registered (mirrors Sign_up_check.check())."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Customer_Email FROM Customer_services WHERE Customer_Email = ?", (email,))
+        cur.execute("SELECT Customer_Email FROM Customer_services WHERE Customer_Email = %s", (email,))
         result = cur.fetchone()
         conn.close()
         return result is not None
@@ -201,25 +202,19 @@ class DB:
         Register a new customer and create their Account row.
         Mirrors Register_Identity.register() / register_not() from Bank_bulid_1.py.
         """
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO Customer_services(
                 Customer_Name, Customer_Age, Customer_Gender, Customer_Status,
                 Customer_Location, Customer_Phone, Customer_Email,
                 Customer_password, Customer_ID)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ''', (name, str(age), gender, status, location, phone, email, password, account_id))
-        cur.execute('''
-            CREATE TABLE IF NOT EXISTS Account(
-                Account_id TEXT PRIMARY KEY, Customer_ID INT,
-                Current_amount REAL DEFAULT 0,
-                Transaction_Date TEXT, Transaction_ID TEXT)
-        ''')
         cur.execute('''
             INSERT INTO Account(Account_id, Customer_ID, Current_amount,
                                 Transaction_Date, Transaction_ID)
-            VALUES(?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s)
         ''', (str(account_id), account_id, 0.0, None, None))
         conn.commit()
         conn.close()
@@ -233,10 +228,10 @@ class DB:
     @staticmethod
     def update_password(email, new_password):
         """Mirrors Changepassword.change() from Bank_account.py."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "UPDATE Customer_services SET Customer_password = ? WHERE Customer_Email = ?",
+            "UPDATE Customer_services SET Customer_password = %s WHERE Customer_Email = %s",
             (new_password, email)
         )
         conn.commit()
@@ -249,9 +244,9 @@ class DB:
         Mirrors Transaction.check() + Transaction.send() from Bank_account.py.
         Returns (new_balance, error_message).
         """
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(sender_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = %s", (str(sender_id),))
         row = cur.fetchone()
         if row is None:
             conn.close()
@@ -259,19 +254,19 @@ class DB:
         if float(row[0]) < amount:
             conn.close()
             return None, "Insufficient funds. Please recharge!"
-        cur.execute("SELECT Account_id FROM Account WHERE Account_id = ?", (str(recipient_id),))
+        cur.execute("SELECT Account_id FROM Account WHERE Account_id = %s", (str(recipient_id),))
         if cur.fetchone() is None:
             conn.close()
             return None, "Recipient account not found."
         cur.execute(
-            "UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id = ?",
+            "UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id = %s",
             (amount, str(sender_id))
         )
         cur.execute(
-            "UPDATE Account SET Current_amount = Current_amount + ? WHERE Account_id = ?",
+            "UPDATE Account SET Current_amount = Current_amount + %s WHERE Account_id = %s",
             (amount, str(recipient_id))
         )
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(sender_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = %s", (str(sender_id),))
         new_balance = cur.fetchone()[0]
         conn.commit()
         conn.close()
@@ -284,13 +279,13 @@ class DB:
         Mirrors Transaction.transaction_record() from Bank_account.py.
         """
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO Transactions(
                 Transaction_ID, From_Account, To_Account,
                 Amount, Transaction_Date, Status)
-            VALUES(?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s)
         ''', (str(txn_id), str(from_account), str(to_account), amount, now, "Completed"))
         conn.commit()
         conn.close()
@@ -305,17 +300,17 @@ class DB:
     @staticmethod
     def deposit(account_id, amount):
         """Credit an account with the deposit amount. Returns (new_balance, error)."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Account_id FROM Account WHERE Account_id = ?", (str(account_id),))
+        cur.execute("SELECT Account_id FROM Account WHERE Account_id = %s", (str(account_id),))
         if cur.fetchone() is None:
             conn.close()
             return None, "Account not found."
         cur.execute(
-            "UPDATE Account SET Current_amount = Current_amount + ? WHERE Account_id = ?",
+            "UPDATE Account SET Current_amount = Current_amount + %s WHERE Account_id = %s",
             (amount, str(account_id))
         )
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = ?", (str(account_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id = %s", (str(account_id),))
         new_balance = cur.fetchone()[0]
         conn.commit()
         conn.close()
@@ -324,7 +319,7 @@ class DB:
     @staticmethod
     def get_stats(account_id):
         """Returns (total_sent, total_received, txn_count) for the account."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE From_Account=? AND From_Account != 'DEPOSIT'", (str(account_id),))
         total_sent = cur.fetchone()[0]
@@ -346,12 +341,12 @@ class DB:
             monthly_payment = amount / months
         monthly_payment = round(monthly_payment, 2)
         start_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO Loans(Loan_ID, Account_ID, Amount, Interest_Rate, Months,
                               Monthly_Payment, Start_Date, Status, Amount_Repaid)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ''', (loan_id, str(account_id), amount, interest_rate, months,
               monthly_payment, start_date, 'Active', 0.0))
         conn.commit()
@@ -360,7 +355,7 @@ class DB:
 
     @staticmethod
     def get_loans(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT * FROM Loans WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
         rows = cur.fetchall()
@@ -370,7 +365,7 @@ class DB:
     @staticmethod
     def create_fixed_deposit(account_id, amount, days):
         """Deduct amount from account and create FD. Returns (fd_id, maturity_date, expected_return, error)."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
         row = cur.fetchone()
@@ -388,12 +383,12 @@ class DB:
         from datetime import timedelta
         maturity = (start + timedelta(days=days)).strftime("%Y-%m-%d")
         start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id=?",
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=?",
                     (amount, str(account_id)))
         cur.execute('''
             INSERT INTO FixedDeposits(FD_ID, Account_ID, Amount, Interest_Rate, Days,
                                       Start_Date, Maturity_Date, Expected_Return, Status)
-            VALUES(?,?,?,?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
         ''', (fd_id, str(account_id), amount, interest_rate, days, start_str, maturity, expected_return, 'Active'))
         conn.commit()
         conn.close()
@@ -401,7 +396,7 @@ class DB:
 
     @staticmethod
     def get_fixed_deposits(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT * FROM FixedDeposits WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
         rows = cur.fetchall()
@@ -411,7 +406,7 @@ class DB:
     @staticmethod
     def record_bill_payment(payment_id, account_id, biller, amount):
         """Deduct amount and record bill payment. Returns (new_balance, error)."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
         row = cur.fetchone()
@@ -422,11 +417,11 @@ class DB:
             conn.close()
             return None, "Insufficient balance."
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("UPDATE Account SET Current_amount = Current_amount - ? WHERE Account_id=?",
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=?",
                     (amount, str(account_id)))
         cur.execute('''
             INSERT INTO BillPayments(Payment_ID, Account_ID, Biller, Amount, Payment_Date, Status)
-            VALUES(?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s)
         ''', (payment_id, str(account_id), biller, amount, now, 'Paid'))
         cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
         new_balance = cur.fetchone()[0]
@@ -441,10 +436,10 @@ class DB:
         if amount > 5000:
             flags.append(f"Large transfer: GHS {amount:.2f} (threshold GHS 5,000)")
         five_mins_ago = (datetime.now() - timedelta(minutes=5)).strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM Transactions WHERE From_Account=? AND Transaction_Date > ?",
+            "SELECT COUNT(*) FROM Transactions WHERE From_Account=? AND Transaction_Date > %s",
             (str(account_id), five_mins_ago)
         )
         recent_count = cur.fetchone()[0]
@@ -459,12 +454,12 @@ class DB:
         schedule_id = "REC" + str(generate_transaction_id())
         days = 7 if frequency == "Weekly" else 30
         next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO RecurringPayments(Schedule_ID, Account_ID, Recipient_ID,
                                           Amount, Frequency, Next_Run_Date, Status, Description)
-            VALUES(?,?,?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s,%s,%s)
         ''', (schedule_id, str(account_id), str(recipient_id), amount,
               frequency, next_run, 'Active', description))
         conn.commit()
@@ -473,7 +468,7 @@ class DB:
 
     @staticmethod
     def get_recurring(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
             "SELECT * FROM RecurringPayments WHERE Account_ID=? ORDER BY Next_Run_Date ASC",
@@ -485,7 +480,7 @@ class DB:
 
     @staticmethod
     def cancel_recurring(schedule_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("UPDATE RecurringPayments SET Status='Cancelled' WHERE Schedule_ID=?",
                     (schedule_id,))
@@ -496,10 +491,10 @@ class DB:
     def process_due_recurring():
         """Execute all active recurring payments due today or earlier."""
         today = datetime.now().strftime("%Y-%m-%d")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM RecurringPayments WHERE Status='Active' AND Next_Run_Date <= ?",
+            "SELECT * FROM RecurringPayments WHERE Status='Active' AND Next_Run_Date <= %s",
             (today,)
         )
         due = cur.fetchall()
@@ -513,7 +508,7 @@ class DB:
                 DB.record_transaction(txn_id, account_id, recipient_id, amount)
                 days = 7 if frequency == "Weekly" else 30
                 next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
-                conn2 = sqlite3.connect(DB_FILE)
+                conn2 = db.get_connection()
                 cur2 = conn2.cursor()
                 cur2.execute("UPDATE RecurringPayments SET Next_Run_Date=? WHERE Schedule_ID=?",
                              (next_run, schedule_id))
@@ -526,21 +521,21 @@ class DB:
     def add_notification(account_id, message, notif_type="info"):
         notif_id = "N" + str(generate_transaction_id())
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             INSERT INTO Notifications(Notif_ID, Account_ID, Message, Type, Created_Date, Is_Read)
-            VALUES(?,?,?,?,?,?)
+            VALUES(%s,%s,%s,%s,%s,%s)
         ''', (notif_id, str(account_id), message, notif_type, now, 0))
         conn.commit()
         conn.close()
 
     @staticmethod
     def get_notifications(account_id, limit=20):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM Notifications WHERE Account_ID=? ORDER BY Created_Date DESC LIMIT ?",
+            "SELECT * FROM Notifications WHERE Account_ID=? ORDER BY Created_Date DESC LIMIT %s",
             (str(account_id), limit)
         )
         rows = cur.fetchall()
@@ -549,7 +544,7 @@ class DB:
 
     @staticmethod
     def mark_all_read(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("UPDATE Notifications SET Is_Read=1 WHERE Account_ID=?", (str(account_id),))
         conn.commit()
@@ -557,7 +552,7 @@ class DB:
 
     @staticmethod
     def get_unread_count(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
             "SELECT COUNT(*) FROM Notifications WHERE Account_ID=? AND Is_Read=0",
@@ -569,7 +564,7 @@ class DB:
 
     @staticmethod
     def get_all_accounts():
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute('''
             SELECT cs.Customer_Name, cs.Customer_Email, a.Account_id, a.Current_amount,
@@ -585,7 +580,7 @@ class DB:
 
     @staticmethod
     def get_all_transactions():
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT * FROM Transactions ORDER BY Transaction_Date DESC")
         rows = cur.fetchall()
@@ -595,10 +590,10 @@ class DB:
     @staticmethod
     def freeze_account(account_id, reason="Admin action"):
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "INSERT OR REPLACE INTO FrozenAccounts(Account_ID, Frozen_Date, Reason) VALUES(?,?,?)",
+            "INSERT INTO FrozenAccounts(Account_ID, Frozen_Date, Reason) VALUES(%s,%s,%s) ON CONFLICT (Account_ID) DO UPDATE SET Frozen_Date=EXCLUDED.Frozen_Date, Reason=EXCLUDED.Reason",
             (str(account_id), now, reason)
         )
         conn.commit()
@@ -606,7 +601,7 @@ class DB:
 
     @staticmethod
     def unfreeze_account(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("DELETE FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
         conn.commit()
@@ -614,7 +609,7 @@ class DB:
 
     @staticmethod
     def is_frozen(account_id):
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT 1 FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
         result = cur.fetchone()
@@ -624,7 +619,7 @@ class DB:
     @staticmethod
     def get_bank_totals():
         """Returns (total_accounts, total_balance, total_transactions) across all accounts."""
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute("SELECT COUNT(*), COALESCE(SUM(Current_amount),0) FROM Account")
         accounts, total_bal = cur.fetchone()
@@ -844,7 +839,7 @@ def generate_strong_password():
     WORDs = random.sample(string.ascii_uppercase, k=3)
     wrd   = random.sample(string.ascii_lowercase, k=3)
     nums  = random.sample("1234567890", k=2)
-    syms  = random.sample("!£$%^&*()_+}{?/", k=2)
+    syms  = random.sample("!£$%^&*()_+}{%s/", k=2)
     combined = WORDs + wrd + syms + nums
     random.shuffle(combined)
     return "".join(combined)
@@ -1633,7 +1628,7 @@ class Dashboard(QMainWindow):
             reply = QMessageBox.warning(self, "Suspicious Activity Detected",
                 f"The following concerns were flagged on this transfer:\n\n{flag_msg}\n\n"
                 "A security alert has been sent to your registered email.\n\n"
-                "Do you still want to proceed?",
+                "Do you still want to proceed%s",
                 QMessageBox.Yes | QMessageBox.No
             )
             if reply == QMessageBox.No:
@@ -1854,7 +1849,7 @@ class Dashboard(QMainWindow):
         layout.addWidget(title)
 
         info = QLabel(
-            "Hi there! Need help with your account or have a question?\n"
+            "Hi there! Need help with your account or have a question%s\n"
             "Just type your message below — our Customer Care team is here for you\n"
             "and will respond shortly."
         )
@@ -1905,7 +1900,7 @@ class Dashboard(QMainWindow):
             return
         reply = QMessageBox.question(
             self, "Confirm",
-            "Do you wish to send this message?\n\n"
+            "Do you wish to send this message%s\n\n"
             "Our Customer Care team will attend to you shortly.",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -1967,7 +1962,7 @@ class Dashboard(QMainWindow):
         gen_layout.setSpacing(10)
 
         gen_note = QLabel(
-            "Need a strong password? Click the button to generate one.\n"
+            "Need a strong password%s Click the button to generate one.\n"
             "Copy and save it before using it."
         )
         gen_note.setStyleSheet("color: #718096; font-size: 12px;")
@@ -2277,7 +2272,7 @@ class Dashboard(QMainWindow):
     def _refresh_bill_table(self):
         if not hasattr(self, 'bill_table') or not self.customer:
             return
-        conn = sqlite3.connect(DB_FILE)
+        conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
             "SELECT * FROM BillPayments WHERE Account_ID=? ORDER BY Payment_Date DESC",
@@ -2365,9 +2360,9 @@ class Dashboard(QMainWindow):
 
         reply = QMessageBox.question(
             self, "Confirm Loan Application",
-            f"Apply for GHS {amount:.2f} over {months} months at 15% p.a.?\n"
+            f"Apply for GHS {amount:.2f} over {months} months at 15% p.a.%s\n"
             f"Monthly Payment: GHS {monthly_payment_preview:.2f}\n\n"
-            "Proceed with this loan application?",
+            "Proceed with this loan application%s",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply != QMessageBox.Yes:
@@ -2502,7 +2497,7 @@ class Dashboard(QMainWindow):
             f"Interest Rate   : {interest_rate}% p.a.\n"
             f"Maturity Date   : {maturity_preview}\n"
             f"Expected Return : GHS {expected_return_preview:.2f}\n\n"
-            "Funds will be locked until maturity. Proceed?",
+            "Funds will be locked until maturity. Proceed%s",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply != QMessageBox.Yes:
@@ -2650,7 +2645,7 @@ class Dashboard(QMainWindow):
             f"Amount    : GHS {amount:.2f}\n"
             f"Frequency : {frequency}\n"
             f"First Run : {next_run}\n\n"
-            "Set up this standing order?",
+            "Set up this standing order%s",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply != QMessageBox.Yes:
@@ -2687,7 +2682,7 @@ class Dashboard(QMainWindow):
             QMessageBox.information(self, "Already Cancelled", "This standing order is already cancelled.")
             return
         reply = QMessageBox.question(self, "Confirm Cancellation",
-            f"Cancel standing order {schedule_id}?\nThis cannot be undone.",
+            f"Cancel standing order {schedule_id}%s\nThis cannot be undone.",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
@@ -3005,7 +3000,7 @@ class AdminDashboard(QMainWindow):
         account_id = self.adm_acc_table.item(row, 2).text()
         name       = self.adm_acc_table.item(row, 0).text()
         reply = QMessageBox.question(self, "Confirm Freeze",
-            f"Freeze account {account_id} ({name})?\n"
+            f"Freeze account {account_id} ({name})%s\n"
             "The customer will not be able to make transfers.",
             QMessageBox.Yes | QMessageBox.No
         )
@@ -3022,7 +3017,7 @@ class AdminDashboard(QMainWindow):
         account_id = self.adm_acc_table.item(row, 2).text()
         name       = self.adm_acc_table.item(row, 0).text()
         reply = QMessageBox.question(self, "Confirm Unfreeze",
-            f"Unfreeze account {account_id} ({name})?",
+            f"Unfreeze account {account_id} ({name})%s",
             QMessageBox.Yes | QMessageBox.No
         )
         if reply == QMessageBox.Yes:
