@@ -2,7 +2,7 @@ import sys
 import os
 
 # Allow importing db and config from parent directory
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+sys.path.insert(0, os.path.dirname(__file__))
 
 from kivymd.app import MDApp
 from kivy.uix.screenmanager import ScreenManager, SlideTransition
