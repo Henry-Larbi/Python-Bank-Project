@@ -1,8 +1,9 @@
 import smtplib
 from datetime import datetime
+import config
 
-BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
-BANK_EMAIL_PASSWORD = "nqxq rlam qzzk wpwr"
+BANK_EMAIL = config.BANK_EMAIL
+BANK_EMAIL_PASSWORD = config.BANK_EMAIL_PASSWORD
 
 
 def _send(to_email, subject, body):

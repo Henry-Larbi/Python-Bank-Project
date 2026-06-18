@@ -1,5 +1,6 @@
 import os
-import sqlite3
+import db
+import config
 import random
 import smtplib
 import random
@@ -10,7 +11,7 @@ def greet():
     print(f"\t \t \t{msg}")
     return
 def ask():
-    msg = "what do you wish to do?"
+    msg = "what do you wish to do%s"
     opt1 = "1: Register to join our bank "
     opt2 = "2. Sign-in your account"
     print(f"{msg}\n")
@@ -42,14 +43,14 @@ class Register_Identity():
         self.account_id = Register_Identity._generate_account_id()
         
     def register_not(self):
-        con = sqlite3.connect("Bank_JH.db")
+        con = db.get_connection()
         cursor = con.cursor()
         cursor.execute('''
                        CREATE TABLE Customer_services(
                        Customer_Name TEXT NOT NULL,Customer_Age TEXT NOT NULL,Customer_Gender TEXT NOT NULL,Customer_Status TEXT NOT NULL,Customer_Location TEXT NOT NULL ,Customer_Phone TEXT NOT NULL ,Customer_Email TEXT NOT NULL UNIQUE PRIMARY KEY,Customer_password TEXT NOT NULL,Customer_ID INT NOT NULL
                        )''')
         cursor.execute('''
-                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
+                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status ,Customer_Location ,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
         con.commit()
         con.execute('''
                     CREATE TABLE Account(
@@ -65,10 +66,10 @@ class Register_Identity():
 
 
     def register(self):
-        con = sqlite3.connect("Bank_JH.db")
+        con = db.get_connection()
         cursor = con.cursor()
         cursor.execute('''
-                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status,Customer_Location,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(?,?,?,?,?,?,?,?,?)
+                       INSERT INTO Customer_services(Customer_Name,Customer_Age,Customer_Gender,Customer_Status,Customer_Location,Customer_Phone,Customer_Email,Customer_password,Customer_ID) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s)
                        ''',(self.name,self.age,self.gender,self.status,self.town,self.phone,self.email,self.password,self.account_id))
         con.execute('''
                     CREATE TABLE IF NOT EXISTS Account(
@@ -79,7 +80,7 @@ class Register_Identity():
         starting_balance = 0.0   # change this if you want new accounts to start with funds
         cursor.execute('''
                        INSERT INTO Account(Account_id,Customer_ID,Current_amount,Transaction_Date,Transaction_ID)
-                       VALUES(?,?,?,?,?)
+                       VALUES(%s,%s,%s,%s,%s)
                        ''',(str(self.account_id), self.account_id, starting_balance, None, None))
         con.commit()
         con.close()
@@ -91,16 +92,16 @@ class Register_Identity():
 
 
 def check(name:str,password:str):
-        con = sqlite3.connect("Bank_JH.db")
+        con = db.get_connection()
         cursor = con.cursor()
         cursor.execute('''
-                       SELECT (Customer_password) FROM Customer_services WHERE Customer_Email = ? ''',(name,))
+                       SELECT (Customer_password) FROM Customer_services WHERE Customer_Email = %s ''',(name,))
         data = cursor.fetchone()
         if (data != None) and (password == data[0]):
             return True###we will return the account details that is moving into the user account
         else:
             return False
-#    con = sqlite3.connect("Bank_JH.db")
+#    con = db.get_connection()
 #    cursor = con.cursor()
 #    cursor.execute("SELECT * FROM Customer_services")
 #    data = cursor.fetchall()
@@ -117,9 +118,9 @@ class Sign_up_check():
         self.password = password
     
     def check(self):
-        con = sqlite3.connect("Bank_JH.db")
+        con = db.get_connection()
         cursor = con.cursor()
-        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = ? ",(self.name,))
+        cursor.execute("SELECT (Customer_Email,Customer_password) FROM Customer_service WHERE Customer_Email = %s ",(self.name,))
         data = cursor.fetchone()
         if (data != None) and (self.name == data[0] and self.password == data[1]):
             print("You already have an account please Sign-in")
@@ -147,7 +148,7 @@ class Passwordgenerator():
         words = string.ascii_lowercase
         WORDs = string.ascii_uppercase
         num = "1234567890"
-        sym = "!£$%^&*()_+}{?/"
+        sym = "!£$%^&*()_+}{%s/"
         WRDs = random.sample(WORDs,k=3)
         wrd = random.sample(words,k=3)
         nums = random.sample(num,k=2)

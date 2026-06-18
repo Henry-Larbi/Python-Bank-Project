@@ -321,11 +321,11 @@ class DB:
         """Returns (total_sent, total_received, txn_count) for the account."""
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE From_Account=? AND From_Account != 'DEPOSIT'", (str(account_id),))
+        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE From_Account=%s AND From_Account != 'DEPOSIT'", (str(account_id),))
         total_sent = cur.fetchone()[0]
-        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE To_Account=?", (str(account_id),))
+        cur.execute("SELECT COALESCE(SUM(Amount),0) FROM Transactions WHERE To_Account=%s", (str(account_id),))
         total_received = cur.fetchone()[0]
-        cur.execute("SELECT COUNT(*) FROM Transactions WHERE From_Account=? OR To_Account=?", (str(account_id), str(account_id)))
+        cur.execute("SELECT COUNT(*) FROM Transactions WHERE From_Account=%s OR To_Account=%s", (str(account_id), str(account_id)))
         txn_count = cur.fetchone()[0]
         conn.close()
         return total_sent, total_received, txn_count
@@ -357,7 +357,7 @@ class DB:
     def get_loans(account_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM Loans WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
+        cur.execute("SELECT * FROM Loans WHERE Account_ID=%s ORDER BY Start_Date DESC", (str(account_id),))
         rows = cur.fetchall()
         conn.close()
         return rows
@@ -367,7 +367,7 @@ class DB:
         """Deduct amount from account and create FD. Returns (fd_id, maturity_date, expected_return, error)."""
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=%s", (str(account_id),))
         row = cur.fetchone()
         if row is None:
             conn.close()
@@ -383,7 +383,7 @@ class DB:
         from datetime import timedelta
         maturity = (start + timedelta(days=days)).strftime("%Y-%m-%d")
         start_str = start.strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=?",
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=%s",
                     (amount, str(account_id)))
         cur.execute('''
             INSERT INTO FixedDeposits(FD_ID, Account_ID, Amount, Interest_Rate, Days,
@@ -398,7 +398,7 @@ class DB:
     def get_fixed_deposits(account_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT * FROM FixedDeposits WHERE Account_ID=? ORDER BY Start_Date DESC", (str(account_id),))
+        cur.execute("SELECT * FROM FixedDeposits WHERE Account_ID=%s ORDER BY Start_Date DESC", (str(account_id),))
         rows = cur.fetchall()
         conn.close()
         return rows
@@ -408,7 +408,7 @@ class DB:
         """Deduct amount and record bill payment. Returns (new_balance, error)."""
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=%s", (str(account_id),))
         row = cur.fetchone()
         if row is None:
             conn.close()
@@ -417,13 +417,13 @@ class DB:
             conn.close()
             return None, "Insufficient balance."
         now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=?",
+        cur.execute("UPDATE Account SET Current_amount = Current_amount - %s WHERE Account_id=%s",
                     (amount, str(account_id)))
         cur.execute('''
             INSERT INTO BillPayments(Payment_ID, Account_ID, Biller, Amount, Payment_Date, Status)
             VALUES(%s,%s,%s,%s,%s,%s)
         ''', (payment_id, str(account_id), biller, amount, now, 'Paid'))
-        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=?", (str(account_id),))
+        cur.execute("SELECT Current_amount FROM Account WHERE Account_id=%s", (str(account_id),))
         new_balance = cur.fetchone()[0]
         conn.commit()
         conn.close()
@@ -439,7 +439,7 @@ class DB:
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM Transactions WHERE From_Account=? AND Transaction_Date > %s",
+            "SELECT COUNT(*) FROM Transactions WHERE From_Account=%s AND Transaction_Date > %s",
             (str(account_id), five_mins_ago)
         )
         recent_count = cur.fetchone()[0]
@@ -471,7 +471,7 @@ class DB:
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM RecurringPayments WHERE Account_ID=? ORDER BY Next_Run_Date ASC",
+            "SELECT * FROM RecurringPayments WHERE Account_ID=%s ORDER BY Next_Run_Date ASC",
             (str(account_id),)
         )
         rows = cur.fetchall()
@@ -482,7 +482,7 @@ class DB:
     def cancel_recurring(schedule_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE RecurringPayments SET Status='Cancelled' WHERE Schedule_ID=?",
+        cur.execute("UPDATE RecurringPayments SET Status='Cancelled' WHERE Schedule_ID=%s",
                     (schedule_id,))
         conn.commit()
         conn.close()
@@ -510,7 +510,7 @@ class DB:
                 next_run = (datetime.now() + timedelta(days=days)).strftime("%Y-%m-%d")
                 conn2 = db.get_connection()
                 cur2 = conn2.cursor()
-                cur2.execute("UPDATE RecurringPayments SET Next_Run_Date=? WHERE Schedule_ID=?",
+                cur2.execute("UPDATE RecurringPayments SET Next_Run_Date=%s WHERE Schedule_ID=%s",
                              (next_run, schedule_id))
                 conn2.commit()
                 conn2.close()
@@ -535,7 +535,7 @@ class DB:
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM Notifications WHERE Account_ID=? ORDER BY Created_Date DESC LIMIT %s",
+            "SELECT * FROM Notifications WHERE Account_ID=%s ORDER BY Created_Date DESC LIMIT %s",
             (str(account_id), limit)
         )
         rows = cur.fetchall()
@@ -546,7 +546,7 @@ class DB:
     def mark_all_read(account_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("UPDATE Notifications SET Is_Read=1 WHERE Account_ID=?", (str(account_id),))
+        cur.execute("UPDATE Notifications SET Is_Read=1 WHERE Account_ID=%s", (str(account_id),))
         conn.commit()
         conn.close()
 
@@ -555,7 +555,7 @@ class DB:
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT COUNT(*) FROM Notifications WHERE Account_ID=? AND Is_Read=0",
+            "SELECT COUNT(*) FROM Notifications WHERE Account_ID=%s AND Is_Read=0",
             (str(account_id),)
         )
         count = cur.fetchone()[0]
@@ -603,7 +603,7 @@ class DB:
     def unfreeze_account(account_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("DELETE FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
+        cur.execute("DELETE FROM FrozenAccounts WHERE Account_ID=%s", (str(account_id),))
         conn.commit()
         conn.close()
 
@@ -611,7 +611,7 @@ class DB:
     def is_frozen(account_id):
         conn = db.get_connection()
         cur = conn.cursor()
-        cur.execute("SELECT 1 FROM FrozenAccounts WHERE Account_ID=?", (str(account_id),))
+        cur.execute("SELECT 1 FROM FrozenAccounts WHERE Account_ID=%s", (str(account_id),))
         result = cur.fetchone()
         conn.close()
         return result is not None
@@ -2290,7 +2290,7 @@ class Dashboard(QMainWindow):
         conn = db.get_connection()
         cur = conn.cursor()
         cur.execute(
-            "SELECT * FROM BillPayments WHERE Account_ID=? ORDER BY Payment_Date DESC",
+            "SELECT * FROM BillPayments WHERE Account_ID=%s ORDER BY Payment_Date DESC",
             (str(self.customer[8]),)
         )
         rows = cur.fetchall()
