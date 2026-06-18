@@ -5,7 +5,7 @@
 # Supabase PostgreSQL connection string
 # Get this from: Supabase Dashboard → Project → Settings → Database → Connection string (URI)
 # It looks like: postgresql://postgres:<password>@db.<project-ref>.supabase.co:5432/postgres
-DATABASE_URL = "postgresql://postgres:<your-password>@db.<your-project-ref>.supabase.co:5432/postgres"
+DATABASE_URL = "postgresql://postgres:tXSD%2Fk3h7Cix_r@db.rdsegecsjepbumzsikuu.supabase.co:5432/postgres"
 
 # Gmail address used to send OTPs and notifications
 BANK_EMAIL = "jackhenrykofiobuobilarbi@gmail.com"
