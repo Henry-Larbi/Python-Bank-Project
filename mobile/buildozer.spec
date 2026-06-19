@@ -5,7 +5,7 @@ package.domain = com.accessbank
 
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
-source.include_patterns = ../config.py,../db.py,../email_service.py
+source.include_patterns = screens/*.py
 
 version = 1.0
 
